@@ -44,6 +44,7 @@
 
 struct authgss_x_part {
 	uint32_t gen;
+	uint32_t size;
 	 TAILQ_HEAD(ctx_tailq, svc_rpc_gss_data) lru_q;
 };
 
@@ -126,7 +127,7 @@ authgss_hash_init()
 		}
 		/* partition ctx LRU */
 		axp = (struct authgss_x_part *)
-		    mem_alloc(sizeof(struct authgss_x_part));
+		    mem_zalloc(sizeof(struct authgss_x_part));
 		TAILQ_INIT(&axp->lru_q);
 		xp->u1 = axp;
 	}
@@ -202,6 +203,7 @@ authgss_ctx_hash_set(struct svc_rpc_gss_data *gd)
 	/* lru */
 	axp = (struct authgss_x_part *)t->u1;
 	TAILQ_INSERT_TAIL(&axp->lru_q, gd, lru_q);
+	++(axp->size);
 	mutex_unlock(&t->mtx);
 
 	/* global size */
@@ -223,6 +225,7 @@ authgss_ctx_hash_del(struct svc_rpc_gss_data *gd)
 	rbtree_x_cached_remove(&authgss_hash_st.xt, t, &gd->node_k, gd->hk.k);
 	axp = (struct authgss_x_part *)t->u1;
 	TAILQ_REMOVE(&axp->lru_q, gd, lru_q);
+	--(axp->size);
 	mutex_unlock(&t->mtx);
 
 	/* global size */
@@ -273,13 +276,14 @@ void authgss_ctx_gc_idle(void)
 		/* Remove the least-recently-used entry in this hash
 		 * partition iff it is expired, or the partition size
 		 * limit is exceeded */
-		if (unlikely((authgss_hash_st.size > authgss_hash_st.max_part)
+		if (unlikely((axp->size > authgss_hash_st.max_part)
 				|| (authgss_ctx_expired(gd)))) {
 
 			/* remove entry */
 			rbtree_x_cached_remove(&authgss_hash_st.xt, xp,
 					       &gd->node_k, gd->hk.k);
 			TAILQ_REMOVE(&axp->lru_q, gd, lru_q);
+			--(axp->size);
 			(void)atomic_dec_uint32_t(&authgss_hash_st.size);
 
 			/* drop sentinel ref (may free gd) */
