@@ -140,7 +140,7 @@ static const char __no_mem_str[] = "out of memory";
  * fd should be an open socket
  */
 CLIENT *
-clnt_vc_ncreate(int fd,	/* open file descriptor */
+clnt_vc_ncreate(struct gfd gfd,	/* open file descriptor */
 		const struct netbuf *raddr,	/* servers address */
 		const rpcprog_t prog,	/* program number */
 		const rpcvers_t vers,	/* version number */
@@ -148,12 +148,12 @@ clnt_vc_ncreate(int fd,	/* open file descriptor */
 		u_int recvsz /* buffer send size */)
 {
 	return (clnt_vc_ncreate2
-		(fd, raddr, prog, vers, sendsz, recvsz,
+		(gfd, raddr, prog, vers, sendsz, recvsz,
 		 CLNT_CREATE_FLAG_CONNECT));
 }
 
 CLIENT *
-clnt_vc_ncreate2(int fd,	/* open file descriptor */
+clnt_vc_ncreate2(struct gfd gfd,	/* open file descriptor */
 		 const struct netbuf *raddr,	/* servers address */
 		 const rpcprog_t prog,	/* program number */
 		 const rpcvers_t vers,	/* version number */
@@ -179,14 +179,14 @@ clnt_vc_ncreate2(int fd,	/* open file descriptor */
 
 	if (flags & CLNT_CREATE_FLAG_CONNECT) {
 		slen = sizeof(ss);
-		if (getpeername(fd, (struct sockaddr *)&ss, &slen) < 0) {
+		if (getpeername(gfd.fd, (struct sockaddr *)&ss, &slen) < 0) {
 			if (errno != ENOTCONN) {
 				rpc_createerr.cf_stat = RPC_SYSTEMERROR;
 				rpc_createerr.cf_error.re_errno = errno;
 				goto err;
 			}
 			if (connect
-			    (fd, (struct sockaddr *)raddr->buf,
+			    (gfd.fd, (struct sockaddr *)raddr->buf,
 			     raddr->len) < 0) {
 				rpc_createerr.cf_stat = RPC_SYSTEMERROR;
 				rpc_createerr.cf_error.re_errno = errno;
@@ -195,11 +195,11 @@ clnt_vc_ncreate2(int fd,	/* open file descriptor */
 		}
 	}
 	/* connect */
-	if (!__rpc_fd2sockinfo(fd, &si))
+	if (!__rpc_fd2sockinfo(gfd.fd, &si))
 		goto err;
 
 	/* atomically find or create shared fd state */
-	rec = rpc_dplx_lookup_rec(fd, RPC_DPLX_LKP_IFLAG_LOCKREC, &oflags);
+	rec = rpc_dplx_lookup_rec(gfd, RPC_DPLX_LKP_IFLAG_LOCKREC, &oflags);
 	if (!rec) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC_VC,
 			"clnt_vc_ncreate2: rpc_dplx_lookup_rec failed");
@@ -254,7 +254,7 @@ clnt_vc_ncreate2(int fd,	/* open file descriptor */
 	clnt->cl_refcnt = 1;
 
 	/* private data struct */
-	xd->cx.data.ct_fd = fd;
+	xd->cx.data.ct_fd = gfd;
 	cs = mem_alloc(sizeof(struct ct_serialized));
 	ct = &xd->cx.data;
 	ct->ct_closeit = false;
@@ -284,7 +284,7 @@ clnt_vc_ncreate2(int fd,	/* open file descriptor */
 	xdrmem_create(ct_xdrs, cs->ct_u.ct_mcallc, MCALL_MSG_SIZE, XDR_ENCODE);
 	if (!xdr_callhdr(ct_xdrs, &call_msg)) {
 		if (ct->ct_closeit)
-			(void)close(fd);
+			(void)close(gfd.fd);
 		goto err;
 	}
 	cs->ct_mpos = XDR_GETPOS(ct_xdrs);
@@ -670,7 +670,7 @@ clnt_vc_control(CLIENT *clnt, u_int request, void *info)
 		(void)memcpy(info, ct->ct_addr.buf, (size_t) ct->ct_addr.len);
 		break;
 	case CLGET_FD:
-		*(int *)info = ct->ct_fd;
+		*(int *)info = ct->ct_fd.fd;
 		break;
 	case CLGET_SVC_ADDR:
 		/* The caller should not free this memory area */

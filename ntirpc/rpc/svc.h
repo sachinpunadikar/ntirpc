@@ -290,7 +290,7 @@ typedef struct rpc_svcxprt {
 	uint32_t xp_refs;	/* handle reference count */
 	uint32_t xp_requests;	/* related requests count */
 
-	int xp_fd;
+	struct gfd xp_fd;
 	int xp_si_type;		/* si type */
 	int xp_type;		/* xprt type */
 
@@ -710,7 +710,7 @@ extern SVCXPRT *svc_tp_ncreate(void (*)(struct svc_req *, SVCXPRT *),
 /*
  * Generic TLI create routine
  */
-extern SVCXPRT *svc_tli_ncreate(const int, const struct netconfig *,
+extern SVCXPRT *svc_tli_ncreate(struct gfd, const struct netconfig *,
 				const struct t_bind *, const u_int,
 				const u_int);
 /*
@@ -725,14 +725,14 @@ extern SVCXPRT *svc_tli_ncreate(const int, const struct netconfig *,
  * Connectionless and connectionful create routines
  */
 
-extern SVCXPRT *svc_vc_ncreate(const int, const u_int, const u_int);
+extern SVCXPRT *svc_vc_ncreate(struct gfd, const u_int, const u_int);
 /*
  *      const int fd;                           -- open connection end point
  *      const u_int sendsize;                   -- max send size
  *      const u_int recvsize;                   -- max recv size
  */
 
-extern SVCXPRT *svc_vc_ncreate2(const int, const u_int, const u_int,
+extern SVCXPRT *svc_vc_ncreate2(struct gfd, const u_int, const u_int,
 				const u_int);
 /*
  *      const int fd;                           -- open connection end point
@@ -779,9 +779,9 @@ extern SVCXPRT *svc_vc_ncreate_clnt(CLIENT *, u_int, u_int, const uint32_t);
 /*
  * Added for compatibility to old rpc 4.0. Obsoleted by svc_vc_create().
  */
-extern SVCXPRT *svcunix_ncreate(int, u_int, u_int, char *);
+extern SVCXPRT *svcunix_ncreate(struct gfd, u_int, u_int, char *);
 
-extern SVCXPRT *svc_dg_ncreate(const int, const u_int, const u_int);
+extern SVCXPRT *svc_dg_ncreate(struct gfd, const u_int, const u_int);
 /*
  * const int fd;                                -- open connection
  * const u_int sendsize;                        -- max send size
@@ -792,7 +792,7 @@ extern SVCXPRT *svc_dg_ncreate(const int, const u_int, const u_int);
  * the routine takes any *open* connection
  * descriptor as its first input and is used for open connections.
  */
-extern SVCXPRT *svc_fd_ncreate(const int, const u_int, const u_int);
+extern SVCXPRT *svc_fd_ncreate(struct gfd, const u_int, const u_int);
 /*
  *      const int fd;                           -- open connection end point
  *      const u_int sendsize;                   -- max send size
@@ -802,7 +802,7 @@ extern SVCXPRT *svc_fd_ncreate(const int, const u_int, const u_int);
 /*
  * Added for compatibility to old rpc 4.0. Obsoleted by svc_fd_create().
  */
-extern SVCXPRT *svcunixfd_ncreate(int, u_int, u_int);
+extern SVCXPRT *svcunixfd_ncreate(struct gfd, u_int, u_int);
 
 /*
  * Memory based rpc (for speed check and testing)

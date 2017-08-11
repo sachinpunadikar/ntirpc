@@ -140,6 +140,7 @@ NTIRPC_${NTIRPC_VERSION} {
     rpcb_taddr2uaddr;
     rpcb_uaddr2taddr;
     rpcb_unset;
+    rpc_get_next_fdgen;
 
     # s*
     setnetconfig;

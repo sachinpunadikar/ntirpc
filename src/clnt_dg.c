@@ -99,7 +99,7 @@ static const char mem_err_clnt_dg[] = "clnt_dg_create: out of memory";
  * If svcaddr is NULL, returns NULL.
  */
 CLIENT *
-clnt_dg_ncreate(int fd,	/* open file descriptor */
+clnt_dg_ncreate(struct gfd gfd,	/* open file descriptor */
 		const struct netbuf *svcaddr,	/* servers address */
 		rpcprog_t program,	/* program number */
 		rpcvers_t version,	/* version number */
@@ -120,7 +120,7 @@ clnt_dg_ncreate(int fd,	/* open file descriptor */
 		return (NULL);
 	}
 
-	if (!__rpc_fd2sockinfo(fd, &si)) {
+	if (!__rpc_fd2sockinfo(gfd.fd, &si)) {
 		rpc_createerr.cf_stat = RPC_TLIERROR;
 		rpc_createerr.cf_error.re_errno = 0;
 		return (NULL);
@@ -183,20 +183,20 @@ clnt_dg_ncreate(int fd,	/* open file descriptor */
 #ifdef IP_RECVERR
 	{
 		int on = 1;
-		(void) setsockopt(fd, SOL_IP, IP_RECVERR, &on, sizeof(on));
+		(void) setsockopt(gfd.fd, SOL_IP, IP_RECVERR, &on, sizeof(on));
 	}
 #endif
-	ioctl(fd, FIONBIO, (char *)(void *)&one);
+	ioctl(gfd.fd, FIONBIO, (char *)(void *)&one);
 	/*
 	 * By default, closeit is always false. It is users responsibility
 	 * to do a close on it, else the user may use clnt_control
 	 * to let clnt_destroy do it for him/her.
 	 */
 	cu->cu_closeit = false;
-	cu->cu_fd = fd;
+	cu->cu_fd = gfd;
 	clnt->cl_ops = clnt_dg_ops();
 	clnt->cl_p1 = cx;
-	clnt->cl_p2 = rpc_dplx_lookup_rec(fd, RPC_DPLX_LKP_FLAG_NONE,
+	clnt->cl_p2 = rpc_dplx_lookup_rec(gfd, RPC_DPLX_LKP_FLAG_NONE,
 					  &oflags); /* ref+1 */
 	clnt->cl_tp = NULL;
 	clnt->cl_netid = NULL;
@@ -256,7 +256,7 @@ clnt_dg_call(CLIENT *clnt,	/* client handle */
 
 	if (cu->cu_connect && !cu->cu_connected) {
 		if (connect
-		    (cu->cu_fd, (struct sockaddr *)&cu->cu_raddr,
+		    (cu->cu_fd.fd, (struct sockaddr *)&cu->cu_raddr,
 		     cu->cu_rlen) < 0) {
 			cu->cu_error.re_errno = errno;
 			cu->cu_error.re_status = RPC_CANTSEND;
@@ -302,7 +302,7 @@ clnt_dg_call(CLIENT *clnt,	/* client handle */
 
  send_again:
 	nextsend_time = cu->cu_wait.tv_sec * 1000 + cu->cu_wait.tv_usec / 1000;
-	if (sendto(cu->cu_fd, cu->cu_outbuf, outlen, 0, sa, salen) != outlen) {
+	if (sendto(cu->cu_fd.fd, cu->cu_outbuf, outlen, 0, sa, salen) != outlen) {
 		cu->cu_error.re_errno = errno;
 		cu->cu_error.re_status = RPC_CANTSEND;
 		goto out;
@@ -324,7 +324,7 @@ clnt_dg_call(CLIENT *clnt,	/* client handle */
 	reply_msg.acpted_rply.ar_results.where = NULL;
 	reply_msg.acpted_rply.ar_results.proc = (xdrproc_t) xdr_void;
 
-	fd.fd = cu->cu_fd;
+	fd.fd = cu->cu_fd.fd;
 	fd.events = POLLIN;
 	fd.revents = 0;
 	while ((total_time > 0) || once) {
@@ -369,7 +369,7 @@ clnt_dg_call(CLIENT *clnt,	/* client handle */
 		msg.msg_flags = 0;
 		msg.msg_control = cbuf;
 		msg.msg_controllen = 256;
-		ret = recvmsg(cu->cu_fd, &msg, MSG_ERRQUEUE);
+		ret = recvmsg(cu->cu_fd.fd, &msg, MSG_ERRQUEUE);
 		if (ret >= 0 && memcmp(cbuf + 256, cu->cu_outbuf, ret) == 0
 		    && (msg.msg_flags & MSG_ERRQUEUE)
 		    && ((msg.msg_namelen == 0 && ret >= 12)
@@ -393,7 +393,7 @@ clnt_dg_call(CLIENT *clnt,	/* client handle */
 	/* We have some data now */
 	do {
 		recvlen =
-		    recvfrom(cu->cu_fd, cu->cu_inbuf, cu->cu_recvsz, 0, NULL,
+		    recvfrom(cu->cu_fd.fd, cu->cu_inbuf, cu->cu_recvsz, 0, NULL,
 			     NULL);
 	} while (recvlen < 0 && errno == EINTR);
 	if (recvlen < 0 && errno != EWOULDBLOCK) {
@@ -595,7 +595,7 @@ clnt_dg_control(CLIENT *clnt, u_int request, void *info)
 		*(struct timeval *)info = cu->cu_wait;
 		break;
 	case CLGET_FD:
-		*(int *)info = cu->cu_fd;
+		*(int *)info = cu->cu_fd.fd;
 		break;
 	case CLGET_SVC_ADDR:
 		addr = (struct netbuf *)info;
@@ -685,7 +685,7 @@ clnt_dg_destroy(CLIENT *clnt)
 {
 	struct cx_data *cx = (struct cx_data *)clnt->cl_p1;
 	struct rpc_dplx_rec *rec = (struct rpc_dplx_rec *)clnt->cl_p2;
-	int cu_fd = CU_DATA(cx)->cu_fd;
+	struct gfd cu_fd = CU_DATA(cx)->cu_fd;
 	sigset_t mask, newmask;
 
 	/* Handle our own signal mask here, the signal section is
@@ -698,7 +698,7 @@ clnt_dg_destroy(CLIENT *clnt)
 	rpc_dplx_rwc(clnt, rpc_flag_clear);
 
 	if (CU_DATA(cx)->cu_closeit)
-		(void)close(cu_fd);
+		(void)close(cu_fd.fd);
 	XDR_DESTROY(&(CU_DATA(cx)->cu_outxdrs));
 
 	/* signal both channels */

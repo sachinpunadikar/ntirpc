@@ -67,8 +67,8 @@
 extern mutex_t rpcsoc_lock;
 
 static CLIENT *clnt_com_ncreate(struct sockaddr_in *, rpcprog_t, rpcvers_t,
-				int *, u_int, u_int, char *, int);
-static SVCXPRT *svc_com_ncreate(int, u_int, u_int, char *);
+				struct gfd *gfd, u_int, u_int, char *, int);
+static SVCXPRT *svc_com_ncreate(struct gfd, u_int, u_int, char *);
 static bool rpc_wrap_bcast(char *, struct netbuf *, struct netconfig *);
 
 /* XXX */
@@ -85,12 +85,12 @@ static bool rpc_wrap_bcast(char *, struct netbuf *, struct netconfig *);
  */
 static CLIENT *
 clnt_com_ncreate(struct sockaddr_in *raddr, rpcprog_t prog,
-		 rpcvers_t vers, int *sockp, u_int sendsz,
+		 rpcvers_t vers, struct gfd *sockp, u_int sendsz,
 		 u_int recvsz, char *tp, int flags)
 {
 	CLIENT *cl;
 	int madefd = FALSE;
-	int fd = *sockp;
+	struct gfd gfd = *sockp;
 	struct netconfig *nconf;
 	struct netbuf bindaddr;
 
@@ -101,17 +101,19 @@ clnt_com_ncreate(struct sockaddr_in *raddr, rpcprog_t prog,
 		mutex_unlock(&rpcsoc_lock);
 		return (NULL);
 	}
-	if (fd == RPC_ANYSOCK) {
+	if (gfd.fd == RPC_ANYSOCK) {
 		static int have_cloexec;
-		fd = __rpc_nconf2fd_flags(nconf, flags);
-		if (fd == -1) {
+		gfd.fd = __rpc_nconf2fd_flags(nconf, flags);
+		gfd.gen = rpc_get_next_fdgen();
+		if (gfd.fd == -1) {
 			if ((flags & SOCK_CLOEXEC) && have_cloexec <= 0) {
-				fd = __rpc_nconf2fd(nconf);
-				if (fd == -1)
+				gfd.fd = __rpc_nconf2fd(nconf);
+				gfd.gen = rpc_get_next_fdgen();
+				if (gfd.fd == -1)
 					goto syserror;
 				if (flags & SOCK_CLOEXEC) {
 					have_cloexec = -1;
-					(void) fcntl(fd, F_SETFD, FD_CLOEXEC);
+					(void) fcntl(gfd.fd, F_SETFD, FD_CLOEXEC);
 				}
 			} else
 				goto syserror;
@@ -138,15 +140,15 @@ clnt_com_ncreate(struct sockaddr_in *raddr, rpcprog_t prog,
 	bindaddr.maxlen = bindaddr.len = sizeof(struct sockaddr_in);
 	bindaddr.buf = raddr;
 
-	bindresvport(fd, NULL);
-	cl = clnt_tli_ncreate(fd, nconf, &bindaddr, prog, vers, sendsz, recvsz);
+	bindresvport(gfd.fd, NULL);
+	cl = clnt_tli_ncreate(gfd, nconf, &bindaddr, prog, vers, sendsz, recvsz);
 	if (cl) {
 		if (madefd == TRUE) {
 			/*
 			 * The fd should be closed while destroying the handle.
 			 */
 			(void)CLNT_CONTROL(cl, CLSET_FD_CLOSE, NULL);
-			*sockp = fd;
+			*sockp = gfd;
 		}
 		(void)freenetconfigent(nconf);
 		mutex_unlock(&rpcsoc_lock);
@@ -159,7 +161,7 @@ clnt_com_ncreate(struct sockaddr_in *raddr, rpcprog_t prog,
 	rpc_createerr.cf_error.re_errno = errno;
 
  err:	if (madefd == TRUE)
-		(void)close(fd);
+		(void)close(gfd.fd);
 	(void)freenetconfigent(nconf);
 	mutex_unlock(&rpcsoc_lock);
 	return (NULL);
@@ -168,7 +170,7 @@ clnt_com_ncreate(struct sockaddr_in *raddr, rpcprog_t prog,
 /* XXX suspicious */
 CLIENT *
 __libc_clntudp_nbufcreate(struct sockaddr_in *raddr, u_long prog,
-			  u_long vers, struct timeval wait, int *sockp,
+			  u_long vers, struct timeval wait, struct gfd *sockp,
 			  u_int sendsz, u_int recvsz, int flags)
 {
 	CLIENT *cl;
@@ -183,7 +185,7 @@ __libc_clntudp_nbufcreate(struct sockaddr_in *raddr, u_long prog,
 
 CLIENT *
 clntudp_nbufcreate(struct sockaddr_in *raddr, u_long prog, u_long vers,
-		   struct timeval wait, int *sockp, u_int sendsz,
+		   struct timeval wait, struct gfd *sockp, u_int sendsz,
 		   u_int recvsz)
 {
 	CLIENT *cl;
@@ -198,7 +200,7 @@ clntudp_nbufcreate(struct sockaddr_in *raddr, u_long prog, u_long vers,
 
 CLIENT *
 clntudp_create(struct sockaddr_in *raddr, u_long program,
-	       u_long version, struct timeval wait, int *sockp)
+	       u_long version, struct timeval wait, struct gfd *sockp)
 {
 	return clntudp_nbufcreate(raddr, program, version, wait, sockp,
 				  UDPMSGSIZE, UDPMSGSIZE);
@@ -206,7 +208,7 @@ clntudp_create(struct sockaddr_in *raddr, u_long program,
 
 CLIENT *
 clnttcp_create(struct sockaddr_in *raddr, u_long prog, u_long vers,
-	       int *sockp, u_int sendsz, u_int recvsz)
+	       struct gfd *sockp, u_int sendsz, u_int recvsz)
 {
 	return clnt_com_ncreate(raddr, (rpcprog_t) prog, (rpcvers_t) vers,
 				sockp, sendsz, recvsz, "tcp", 0);
@@ -259,7 +261,7 @@ clntraw_create(u_long prog, u_long vers)
  * A common server create routine
  */
 static SVCXPRT *
-svc_com_ncreate(int fd, u_int sendsize, u_int recvsize, char *netid)
+svc_com_ncreate(struct gfd gfd, u_int sendsize, u_int recvsize, char *netid)
 {
 	struct netconfig *nconf;
 	SVCXPRT *svc;
@@ -272,9 +274,10 @@ svc_com_ncreate(int fd, u_int sendsize, u_int recvsize, char *netid)
 		(void)syslog(LOG_ERR, "Could not get %s transport", netid);
 		return (NULL);
 	}
-	if (fd == RPC_ANYSOCK) {
-		fd = __rpc_nconf2fd(nconf);
-		if (fd == -1) {
+	if (gfd.fd == RPC_ANYSOCK) {
+		gfd.fd = __rpc_nconf2fd(nconf);
+		gfd.gen = rpc_get_next_fdgen();
+		if (gfd.fd == -1) {
 			(void)freenetconfigent(nconf);
 			(void)syslog(LOG_ERR,
 				     "svc%s_create: could not open connection",
@@ -286,13 +289,13 @@ svc_com_ncreate(int fd, u_int sendsize, u_int recvsize, char *netid)
 
 	memset(&sin, 0, sizeof(sin));
 	sin.sin_family = AF_INET;
-	bindresvport(fd, &sin);
-	listen(fd, SOMAXCONN);
-	svc = svc_tli_ncreate(fd, nconf, NULL, sendsize, recvsize);
+	bindresvport(gfd.fd, &sin);
+	listen(gfd.fd, SOMAXCONN);
+	svc = svc_tli_ncreate(gfd, nconf, NULL, sendsize, recvsize);
 	(void)freenetconfigent(nconf);
 	if (svc == NULL) {
 		if (madefd)
-			(void)close(fd);
+			(void)close(gfd.fd);
 		return (NULL);
 	}
 	port = (((struct sockaddr_in *)&svc->xp_local.ss)->sin_port);
@@ -302,28 +305,28 @@ svc_com_ncreate(int fd, u_int sendsize, u_int recvsize, char *netid)
 }
 
 SVCXPRT *
-svctcp_create(int fd, u_int sendsize, u_int recvsize)
+svctcp_create(struct gfd gfd, u_int sendsize, u_int recvsize)
 {
-	return svc_com_ncreate(fd, sendsize, recvsize, "tcp");
+	return svc_com_ncreate(gfd, sendsize, recvsize, "tcp");
 }
 
 SVCXPRT *
-svcudp_bufcreate(int fd, u_int sendsz, u_int recvsz)
+svcudp_bufcreate(struct gfd gfd, u_int sendsz, u_int recvsz)
 {
-	return svc_com_ncreate(fd, sendsz, recvsz, "udp");
+	return svc_com_ncreate(gfd, sendsz, recvsz, "udp");
 }
 
 SVCXPRT *
-svcfd_create(int fd, u_int sendsize, u_int recvsize)
+svcfd_create(struct gfd gfd, u_int sendsize, u_int recvsize)
 {
 
-	return svc_fd_ncreate(fd, sendsize, recvsize);
+	return svc_fd_ncreate(gfd, sendsize, recvsize);
 }
 
 SVCXPRT *
-svcudp_create(int fd)
+svcudp_create(struct gfd gfd)
 {
-	return svc_com_ncreate(fd, UDPMSGSIZE, UDPMSGSIZE, "udp");
+	return svc_com_ncreate(gfd, UDPMSGSIZE, UDPMSGSIZE, "udp");
 }
 
 SVCXPRT *
@@ -488,7 +491,7 @@ authdes_ncreate(char *servername,	/* network name of server */
  */
 CLIENT *
 clntunix_ncreate(struct sockaddr_un *raddr, u_long prog, u_long vers,
-		 int *sockp, u_int sendsz, u_int recvsz)
+		 struct gfd *sockp, u_int sendsz, u_int recvsz)
 {
 	struct netbuf *svcaddr;
 	CLIENT *cl = NULL;
@@ -505,15 +508,16 @@ clntunix_ncreate(struct sockaddr_un *raddr, u_long prog, u_long vers,
 		rpc_createerr.cf_error.re_errno = errno;
 		return (cl);
 	}
-	if (*sockp < 0) {
-		*sockp = socket(AF_LOCAL, SOCK_STREAM, 0);
+	if (sockp->fd < 0) {
+		sockp->fd = socket(AF_LOCAL, SOCK_STREAM, 0);
+		sockp->gen = rpc_get_next_fdgen();
 		len = SUN_LEN(raddr);
-		if ((*sockp < 0)
-		    || (connect(*sockp, (struct sockaddr *)raddr, len) < 0)) {
+		if ((sockp->fd < 0)
+		    || (connect(sockp->fd, (struct sockaddr *)raddr, len) < 0)) {
 			rpc_createerr.cf_stat = RPC_SYSTEMERROR;
 			rpc_createerr.cf_error.re_errno = errno;
-			if (*sockp != -1)
-				(void)close(*sockp);
+			if (sockp->fd != -1)
+				(void)close(sockp->fd);
 			goto done;
 		}
 	}
@@ -532,7 +536,7 @@ clntunix_ncreate(struct sockaddr_un *raddr, u_long prog, u_long vers,
  * Obsoleted by svc_vc_create().
  */
 SVCXPRT *
-svcunix_ncreate(int sock, u_int sendsize, u_int recvsize, char *path)
+svcunix_ncreate(struct gfd sock, u_int sendsize, u_int recvsize, char *path)
 {
 	struct netconfig *nconf;
 	void *localhandle;
@@ -552,8 +556,9 @@ svcunix_ncreate(int sock, u_int sendsize, u_int recvsize, char *path)
 	if (nconf == NULL)
 		goto done;
 
-	sock = __rpc_nconf2fd(nconf);
-	if (sock < 0)
+	sock.fd = __rpc_nconf2fd(nconf);
+	sock.gen = rpc_get_next_fdgen();
+	if (sock.fd < 0)
 		goto done;
 
 	memset(&sun, 0, sizeof(sun));
@@ -563,7 +568,7 @@ svcunix_ncreate(int sock, u_int sendsize, u_int recvsize, char *path)
 	addrlen = sizeof(struct sockaddr_un);
 	sa = (struct sockaddr *)&sun;
 
-	if (bind(sock, sa, addrlen) < 0)
+	if (bind(sock.fd, sa, addrlen) < 0)
 		goto done;
 
 	taddr.addr.len = taddr.addr.maxlen = addrlen;
@@ -573,7 +578,7 @@ svcunix_ncreate(int sock, u_int sendsize, u_int recvsize, char *path)
 	memcpy(taddr.addr.buf, sa, addrlen);
 
 	if (nconf->nc_semantics != NC_TPI_CLTS) {
-		if (listen(sock, SOMAXCONN) < 0) {
+		if (listen(sock.fd, SOMAXCONN) < 0) {
 			mem_free(taddr.addr.buf, 0);
 			goto done;
 		}
@@ -586,7 +591,7 @@ svcunix_ncreate(int sock, u_int sendsize, u_int recvsize, char *path)
  done:
 	endnetconfig(localhandle);
 	if (! xprt)
-		close(sock);
+		close(sock.fd);
 	return (xprt);
 }
 
@@ -595,9 +600,9 @@ svcunix_ncreate(int sock, u_int sendsize, u_int recvsize, char *path)
  * descriptor as its first input. Obsoleted by svc_fd_create();
  */
 SVCXPRT *
-svcunixfd_ncreate(int fd, u_int sendsize, u_int recvsize)
+svcunixfd_ncreate(struct gfd gfd, u_int sendsize, u_int recvsize)
 {
-	return (svc_fd_create(fd, sendsize, recvsize));
+	return (svc_fd_create(gfd, sendsize, recvsize));
 }
 
 #endif				/* PORTMAP */

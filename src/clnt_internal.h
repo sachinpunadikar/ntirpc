@@ -108,7 +108,7 @@ static inline int call_xid_cmpf(const struct opr_rbtree_node *lhs,
 
 struct cu_data {
 	XDR cu_outxdrs;
-	int cu_fd;		/* connections fd */
+	struct gfd cu_fd;		/* connections fd */
 	bool cu_closeit;	/* opened by library */
 	struct sockaddr_storage cu_raddr;	/* remote address */
 	int cu_rlen;
@@ -135,7 +135,7 @@ struct ct_serialized {
 };
 
 struct ct_data {
-	int ct_fd;
+	struct gfd ct_fd;
 	bool ct_closeit;	/* close it on destroy */
 	struct timeval ct_wait;	/* wait interval in milliseconds */
 	bool ct_waitset;	/* wait set by clnt_control? */
@@ -169,7 +169,7 @@ enum CX_TYPE
 
 /* new unified state */
 struct rpc_dplx_rec {
-	int fd_k;
+	struct gfd fd_k;
 #if 0
 	mutex_t mtx;
 #else

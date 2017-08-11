@@ -59,7 +59,7 @@ u_short pmap_getport(struct sockaddr_in *address, u_long program,
 {
 	struct pmap parms;
 	u_short port = 0;
-	int sock = -1;
+	struct gfd sock = {-1, 0};
 	CLIENT *client;
 	AUTH *auth;
 

@@ -75,10 +75,10 @@ svc_xprt_fd_cmpf(const struct opr_rbtree_node *lhs,
 	lk = opr_containerof(lhs, struct rpc_svcxprt, xp_fd_node);
 	rk = opr_containerof(rhs, struct rpc_svcxprt, xp_fd_node);
 
-	if (lk->xp_fd < rk->xp_fd)
+	if (lk->xp_fd.fd < rk->xp_fd.fd)
 		return (-1);
 
-	if (lk->xp_fd == rk->xp_fd)
+	if (lk->xp_fd.fd == rk->xp_fd.fd)
 		return (0);
 
 	return (1);
@@ -125,7 +125,7 @@ svc_xprt_get(int fd)
 
 	cond_init_svc_xprt();
 
-	sk.xp_fd = fd;
+	sk.xp_fd.fd = fd;
 	t = rbtx_partition_of_scalar(&svc_xprt_fd.xt, fd);
 
 	rwlock_rdlock(&t->lock);
@@ -151,7 +151,7 @@ svc_xprt_set(SVCXPRT *xprt, uint32_t flags)
 	if (!(flags & SVC_XPRT_FLAG_LOCKED))
 		mutex_lock(&xprt->xp_lock);
 
-	t = rbtx_partition_of_scalar(&svc_xprt_fd.xt, xprt->xp_fd);
+	t = rbtx_partition_of_scalar(&svc_xprt_fd.xt, xprt->xp_fd.fd);
 
 	rwlock_wrlock(&t->lock);
 
@@ -191,7 +191,7 @@ svc_xprt_clear(SVCXPRT *xprt, uint32_t flags)
 		mutex_lock(&xprt->xp_lock);
 
 	if (opr_rbtree_node_valid(&xprt->xp_fd_node)) {
-		t = rbtx_partition_of_scalar(&svc_xprt_fd.xt, xprt->xp_fd);
+		t = rbtx_partition_of_scalar(&svc_xprt_fd.xt, xprt->xp_fd.fd);
 
 		rwlock_wrlock(&t->lock);
 		opr_rbtree_remove(&t->t, &xprt->xp_fd_node);

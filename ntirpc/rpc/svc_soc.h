@@ -89,8 +89,8 @@ __END_DECLS
  * Udp based rpc.
  */
 __BEGIN_DECLS
-extern SVCXPRT *svcudp_ncreate(int);
-extern SVCXPRT *svcudp_nbufcreate(int, u_int, u_int);
+extern SVCXPRT *svcudp_ncreate(struct gfd);
+extern SVCXPRT *svcudp_nbufcreate(struct gfd, u_int, u_int);
 extern int svcudp_enablecache(SVCXPRT *, u_long);
 extern SVCXPRT *svcudp6_ncreate(int);
 extern SVCXPRT *svcudp6_nbufcreate(int, u_int, u_int);
@@ -99,7 +99,7 @@ __END_DECLS
  * Tcp based rpc.
  */
 __BEGIN_DECLS
-extern SVCXPRT *svctcp_ncreate(int, u_int, u_int);
+extern SVCXPRT *svctcp_ncreate(struct gfd, u_int, u_int);
 extern SVCXPRT *svctcp6_ncreate(int, u_int, u_int);
 __END_DECLS
 /*

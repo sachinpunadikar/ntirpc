@@ -84,7 +84,7 @@ svc_raw_ncreate(void)
 		srp->raw_buf = __rpc_rawcombuf;	/* Share it with the client */
 		svc_raw_private = srp;
 	}
-	srp->server.xp_fd = FD_SETSIZE;
+	srp->server.xp_fd.fd = FD_SETSIZE;
 	srp->server.xp_port = 0;
 	srp->server.xp_p3 = NULL;
 	svc_raw_ops(&srp->server);

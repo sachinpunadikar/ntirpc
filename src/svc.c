@@ -331,7 +331,7 @@ svc_reg(SVCXPRT *xprt, const rpcprog_t prog, const rpcvers_t vers,
 		netid = rpc_strdup(nconf->nc_netid);
 		flag = 1;
 	} else {
-		tnconf = __rpcgettp(xprt->xp_fd);
+		tnconf = __rpcgettp(xprt->xp_fd.fd);
 		if (tnconf) {
 			netid = rpc_strdup(tnconf->nc_netid);
 			flag = 1;
@@ -853,7 +853,7 @@ svc_validate_xprt_list(SVCXPRT *xprt)
 {
 	bool code;
 
-	code = (xprt == svc_xprt_get(xprt->xp_fd));
+	code = (xprt == svc_xprt_get(xprt->xp_fd.fd));
 
 	return (code);
 }

@@ -84,7 +84,7 @@ static void svc_vc_ops(SVCXPRT *);
 static void svc_vc_override_ops(SVCXPRT *, SVCXPRT *);
 
 bool __svc_clean_idle2(int, bool);
-static SVCXPRT *makefd_xprt(int, u_int, u_int, bool *);
+static SVCXPRT *makefd_xprt(struct gfd gfd, u_int, u_int, bool *);
 
 extern pthread_mutex_t svc_ctr_lock;
 
@@ -106,7 +106,7 @@ extern pthread_mutex_t svc_ctr_lock;
  *
  */
 SVCXPRT *
-svc_vc_ncreate2(int fd, u_int sendsize, u_int recvsize, u_int flags)
+svc_vc_ncreate2(struct gfd gfd, u_int sendsize, u_int recvsize, u_int flags)
 {
 	SVCXPRT *xprt = NULL;
 	struct cf_rendezvous *rdvs = NULL;
@@ -121,7 +121,7 @@ svc_vc_ncreate2(int fd, u_int sendsize, u_int recvsize, u_int flags)
 	uint32_t oflags;
 	socklen_t slen;
 
-	if (!__rpc_fd2sockinfo(fd, &si))
+	if (!__rpc_fd2sockinfo(gfd.fd, &si))
 		return NULL;
 
 	if (!__rpc_sockinfo2netid(&si, &netid))
@@ -138,7 +138,7 @@ svc_vc_ncreate2(int fd, u_int sendsize, u_int recvsize, u_int flags)
 	rdvs->maxrec = __svc_maxrec;
 
 	/* atomically find or create shared fd state */
-	rec = rpc_dplx_lookup_rec(fd, RPC_DPLX_LKP_IFLAG_LOCKREC, &oflags);
+	rec = rpc_dplx_lookup_rec(gfd, RPC_DPLX_LKP_IFLAG_LOCKREC, &oflags);
 	if (!rec) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC_VC,
 			"svc_vc: makefd_xprt: rpc_dplx_lookup_rec failed");
@@ -199,15 +199,15 @@ svc_vc_ncreate2(int fd, u_int sendsize, u_int recvsize, u_int flags)
 	xprt->xp_p1 = rdvs;
 	xprt->xp_p2 = xd;
 	xprt->xp_p5 = rec;
-	xprt->xp_fd = fd;
+	xprt->xp_fd = gfd;
 	mutex_init(&xprt->xp_lock, NULL);
 
 	/* caller should know what it's doing */
 	if (flags & SVC_VC_CREATE_LISTEN)
-		listen(fd, SOMAXCONN);
+		listen(gfd.fd, SOMAXCONN);
 
 	slen = sizeof(struct sockaddr_storage);
-	if (getsockname(fd, (struct sockaddr *)(void *)&sslocal, &slen) < 0) {
+	if (getsockname(gfd.fd, (struct sockaddr *)(void *)&sslocal, &slen) < 0) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC_VC,
 			"svc_vc_create: could not retrieve local addr");
 		goto err;
@@ -271,9 +271,9 @@ svc_vc_ncreate2(int fd, u_int sendsize, u_int recvsize, u_int flags)
 }
 
 SVCXPRT *
-svc_vc_ncreate(int fd, u_int sendsize, u_int recvsize)
+svc_vc_ncreate(struct gfd gfd, u_int sendsize, u_int recvsize)
 {
-	return (svc_vc_ncreate2(fd, sendsize, recvsize, SVC_VC_CREATE_NONE));
+	return (svc_vc_ncreate2(gfd, sendsize, recvsize, SVC_VC_CREATE_NONE));
 }
 
 /*
@@ -281,16 +281,16 @@ svc_vc_ncreate(int fd, u_int sendsize, u_int recvsize)
  * descriptor as its first input.
  */
 SVCXPRT *
-svc_fd_ncreate(int fd, u_int sendsize, u_int recvsize)
+svc_fd_ncreate(struct gfd gfd, u_int sendsize, u_int recvsize)
 {
 	struct sockaddr_storage ss;
 	socklen_t slen;
 	SVCXPRT *xprt;
 	bool xprt_allocd;
 
-	assert(fd != -1);
+	assert(gfd.fd != -1);
 
-	xprt = makefd_xprt(fd, sendsize, recvsize, &xprt_allocd);
+	xprt = makefd_xprt(gfd, sendsize, recvsize, &xprt_allocd);
 	if ((!xprt) || (!xprt_allocd))	/* ref'd existing xprt handle */
 		goto done;
 
@@ -299,7 +299,7 @@ svc_fd_ncreate(int fd, u_int sendsize, u_int recvsize)
 		xprt_register(xprt);
 
 	slen = sizeof(struct sockaddr_storage);
-	if (getsockname(fd, (struct sockaddr *)(void *)&ss, &slen) < 0) {
+	if (getsockname(gfd.fd, (struct sockaddr *)(void *)&ss, &slen) < 0) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC_VC,
 			"svc_fd_create: could not retrieve local addr");
 		goto freedata;
@@ -307,7 +307,7 @@ svc_fd_ncreate(int fd, u_int sendsize, u_int recvsize)
 	__rpc_set_address(&xprt->xp_local, &ss, slen);
 
 	slen = sizeof(struct sockaddr_storage);
-	if (getpeername(fd, (struct sockaddr *)(void *)&ss, &slen) < 0) {
+	if (getpeername(gfd.fd, (struct sockaddr *)(void *)&ss, &slen) < 0) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC_VC,
 			"svc_fd_create: could not retrieve remote addr");
 		goto freedata;
@@ -325,21 +325,21 @@ svc_fd_ncreate(int fd, u_int sendsize, u_int recvsize)
  * Like sv_fd_ncreate(), except export flags for additional control.
  */
 SVCXPRT *
-svc_fd_ncreate2(int fd, u_int sendsize, u_int recvsize, u_int flags)
+svc_fd_ncreate2(struct gfd gfd, u_int sendsize, u_int recvsize, u_int flags)
 {
 	struct sockaddr_storage ss;
 	socklen_t slen;
 	SVCXPRT *xprt;
 	bool xprt_allocd;
 
-	assert(fd != -1);
+	assert(gfd.fd != -1);
 
-	xprt = makefd_xprt(fd, sendsize, recvsize, &xprt_allocd);
+	xprt = makefd_xprt(gfd, sendsize, recvsize, &xprt_allocd);
 	if ((!xprt) || (!xprt_allocd))	/* ref'd existing xprt handle */
 		return (xprt);
 
 	slen = sizeof(struct sockaddr_storage);
-	if (getsockname(fd, (struct sockaddr *)(void *)&ss, &slen) < 0) {
+	if (getsockname(gfd.fd, (struct sockaddr *)(void *)&ss, &slen) < 0) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC_VC,
 			"svc_fd_ncreate: could not retrieve local addr");
 		return (NULL);
@@ -347,7 +347,7 @@ svc_fd_ncreate2(int fd, u_int sendsize, u_int recvsize, u_int flags)
 	__rpc_set_address(&xprt->xp_local, &ss, slen);
 
 	slen = sizeof(struct sockaddr_storage);
-	if (getpeername(fd, (struct sockaddr *)(void *)&ss, &slen) < 0) {
+	if (getpeername(gfd.fd, (struct sockaddr *)(void *)&ss, &slen) < 0) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC_VC,
 			"svc_fd_ncreate: could not retrieve remote addr");
 		return (NULL);
@@ -363,7 +363,7 @@ svc_fd_ncreate2(int fd, u_int sendsize, u_int recvsize, u_int flags)
 }
 
 static SVCXPRT *
-makefd_xprt(int fd, u_int sendsz, u_int recvsz, bool *allocated)
+makefd_xprt(struct gfd gfd, u_int sendsz, u_int recvsz, bool *allocated)
 {
 	SVCXPRT *xprt = NULL;
 	struct x_vc_data *xd = NULL;
@@ -374,7 +374,7 @@ makefd_xprt(int fd, u_int sendsz, u_int recvsz, bool *allocated)
 	bool newxd = false;
 	*allocated = false;
 
-	assert(fd != -1);
+	assert(gfd.fd != -1);
 
 	if (!svc_vc_new_conn_ok()) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC_VC,
@@ -384,7 +384,7 @@ makefd_xprt(int fd, u_int sendsz, u_int recvsz, bool *allocated)
 	}
 
 	/* atomically find or create shared fd state */
-	rec = rpc_dplx_lookup_rec(fd, RPC_DPLX_LKP_IFLAG_LOCKREC, &oflags);
+	rec = rpc_dplx_lookup_rec(gfd, RPC_DPLX_LKP_IFLAG_LOCKREC, &oflags);
 	if (!rec) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC_VC,
 			"svc_vc: makefd_xprt: rpc_dplx_lookup_rec failed");
@@ -413,7 +413,7 @@ makefd_xprt(int fd, u_int sendsz, u_int recvsz, bool *allocated)
 		xd->cx.calls.xid = 0;	/* next call xid is 1 */
 		xd->refcnt = 1;
 
-		if (__rpc_fd2sockinfo(fd, &si)) {
+		if (__rpc_fd2sockinfo(gfd.fd, &si)) {
 			xd->shared.sendsz =
 				__rpc_get_t_size(
 					si.si_af, si.si_proto, (int)sendsz);
@@ -473,7 +473,7 @@ makefd_xprt(int fd, u_int sendsz, u_int recvsz, bool *allocated)
 	/* XXX take xp_lock? */
 	mutex_init(&xprt->xp_auth_lock, NULL);
 	xprt->xp_refs = 1;
-	xprt->xp_fd = fd;
+	xprt->xp_fd = gfd;
 
 	/* the SVCXPRT created in svc_vc_create accepts new connections
 	 * in its xp_recv op, the rendezvous_request method, but xprt is
@@ -504,7 +504,7 @@ done:
 static bool
 rendezvous_request(SVCXPRT *xprt, struct svc_req *req)
 {
-	int fd;
+	struct gfd gfd;
 	socklen_t len;
 	struct cf_rendezvous *rdvs;
 	struct x_vc_data *xd;
@@ -518,8 +518,9 @@ rendezvous_request(SVCXPRT *xprt, struct svc_req *req)
 	rdvs = (struct cf_rendezvous *)xprt->xp_p1;
  again:
 	len = sizeof(addr);
-	fd = accept(xprt->xp_fd, (struct sockaddr *)(void *)&addr, &len);
-	if (fd < 0) {
+	gfd.fd = accept(xprt->xp_fd.fd, (struct sockaddr *)(void *)&addr, &len);
+	gfd.gen = rpc_get_next_fdgen();
+	if (gfd.fd < 0) {
 		if (errno == EINTR)
 			goto again;
 		/*
@@ -541,12 +542,12 @@ rendezvous_request(SVCXPRT *xprt, struct svc_req *req)
 		return (FALSE);
 	}
 
-	(void) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
+	(void) setsockopt(gfd.fd, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
 
 	/*
 	 * make a new transport (re-uses xprt)
 	 */
-	newxprt = makefd_xprt(fd, rdvs->sendsize, rdvs->recvsize, &xprt_allocd);
+	newxprt = makefd_xprt(gfd, rdvs->sendsize, rdvs->recvsize, &xprt_allocd);
 	if ((!newxprt) || (!xprt_allocd)) /* ref'd existing xprt handle */
 		return (FALSE);
 
@@ -562,14 +563,14 @@ rendezvous_request(SVCXPRT *xprt, struct svc_req *req)
 	XPRT_TRACE(newxprt, __func__, __func__, __LINE__);
 
 	/* XXX fvdl - is this useful? (Yes.  Matt) */
-	if (__rpc_fd2sockinfo(fd, &si) && si.si_proto == IPPROTO_TCP) {
+	if (__rpc_fd2sockinfo(gfd.fd, &si) && si.si_proto == IPPROTO_TCP) {
 		len = 1;
-		(void) setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &len,
+		(void) setsockopt(gfd.fd, IPPROTO_TCP, TCP_NODELAY, &len,
 				  sizeof(len));
 	}
 
 	slen = sizeof(struct sockaddr_storage);
-	if (getsockname(fd, (struct sockaddr *)(void *)&addr, &slen) < 0) {
+	if (getsockname(gfd.fd, (struct sockaddr *)(void *)&addr, &slen) < 0) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC_VC,
 			"%s: could not retrieve local addr", __func__);
 	} else {
@@ -643,8 +644,8 @@ svc_rdvs_destroy(SVCXPRT *xprt, u_int flags, const char *tag, const int line)
 		" should actually destroy things @ %s:%d",
 		__func__, xprt, xprt->xp_refs, tag, line);
 
-	if (xprt->xp_fd != RPC_ANYFD)
-		(void)close(xprt->xp_fd);
+	if (xprt->xp_fd.fd != RPC_ANYFD)
+		(void)close(xprt->xp_fd.fd);
 
 	if (xprt->xp_ops->xp_free_user_data) {
 		/* call free hook */
@@ -1113,7 +1114,7 @@ __rpc_get_local_uid(SVCXPRT *transp, uid_t *uid)
 	uid_t euid;
 	struct sockaddr *sa;
 
-	sock = transp->xp_fd;
+	sock = transp->xp_fd.fd;
 	sa = (struct sockaddr *)&transp->xp_remote.ss;
 	if (sa->sa_family == AF_LOCAL) {
 		ret = getpeereid(sock, &euid, &egid);
@@ -1303,7 +1304,7 @@ SVCXPRT *
 svc_vc_ncreate_clnt(CLIENT *clnt, const u_int sendsz,
 		    const u_int recvsz, const uint32_t flags)
 {
-	int fd;
+	struct gfd gfd;
 	socklen_t len;
 	struct x_vc_data *xd = (struct x_vc_data *)clnt->cl_p1;
 	struct ct_data *ct = &xd->cx.data;
@@ -1312,12 +1313,12 @@ svc_vc_ncreate_clnt(CLIENT *clnt, const u_int sendsz,
 	SVCXPRT *xprt = NULL;
 	bool xprt_allocd;
 
-	fd = ct->ct_fd;
+	gfd = ct->ct_fd;
 	rpc_dplx_rlc(clnt);
 	rpc_dplx_slc(clnt);
 
 	len = sizeof(struct sockaddr_storage);
-	if (getpeername(fd, (struct sockaddr *)(void *)&addr, &len) < 0) {
+	if (getpeername(gfd.fd, (struct sockaddr *)(void *)&addr, &len) < 0) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC_VC,
 			"%s: could not retrieve remote addr", __func__);
 		goto unlock;
@@ -1327,15 +1328,15 @@ svc_vc_ncreate_clnt(CLIENT *clnt, const u_int sendsz,
 	 * make a new transport
 	 */
 
-	xprt = makefd_xprt(fd, sendsz, recvsz, &xprt_allocd);
+	xprt = makefd_xprt(gfd, sendsz, recvsz, &xprt_allocd);
 	if ((!xprt) || (!xprt_allocd))	/* ref'd existing xprt handle */
 		goto unlock;
 
 	__rpc_set_address(&xprt->xp_remote, &addr, len);
 
-	if (__rpc_fd2sockinfo(fd, &si) && si.si_proto == IPPROTO_TCP) {
+	if (__rpc_fd2sockinfo(gfd.fd, &si) && si.si_proto == IPPROTO_TCP) {
 		len = 1;
-		(void) setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &len,
+		(void) setsockopt(gfd.fd, IPPROTO_TCP, TCP_NODELAY, &len,
 				  sizeof(len));
 	}
 

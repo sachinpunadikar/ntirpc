@@ -139,11 +139,12 @@ rpc_reg(rpcprog_t prognum, rpcvers_t versnum, rpcproc_t procnum,
 
 		if (svcxprt == NULL) {
 			struct __rpc_sockinfo si;
+			struct gfd any_gfd = {RPC_ANYFD, 0};
 
-			svcxprt = svc_tli_ncreate(RPC_ANYFD, nconf, NULL, 0, 0);
+			svcxprt = svc_tli_ncreate(any_gfd, nconf, NULL, 0, 0);
 			if (svcxprt == NULL)
 				continue;
-			if (!__rpc_fd2sockinfo(svcxprt->xp_fd, &si)) {
+			if (!__rpc_fd2sockinfo(svcxprt->xp_fd.fd, &si)) {
 				__warnx(TIRPC_DEBUG_FLAG_SVC, rpc_reg_err,
 					rpc_reg_msg, __reg_err2);
 				SVC_DESTROY(svcxprt);

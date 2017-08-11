@@ -49,6 +49,8 @@
 #include <sys/un.h>
 #endif
 
+#include "misc/rpc_dplx_gfd.h"
+
 /*
  * Well-known IPV6 RPC broadcast address.
  */
@@ -420,7 +422,7 @@ extern CLIENT *clnt_tp_ncreate_timed(const char *, const rpcprog_t,
  * Generic TLI create routine. Only provided for compatibility.
  */
 
-extern CLIENT *clnt_tli_ncreate(const int, const struct netconfig *,
+extern CLIENT *clnt_tli_ncreate(struct gfd gfd, const struct netconfig *,
 				struct netbuf *, const rpcprog_t,
 				const rpcvers_t, const u_int, const u_int);
 /*
@@ -441,10 +443,10 @@ extern CLIENT *clnt_tli_ncreate(const int, const struct netconfig *,
 #define CLNT_CREATE_FLAG_CONNECT        0x0001
 #define CLNT_CREATE_FLAG_SVCXPRT        0x0002
 
-extern CLIENT *clnt_vc_ncreate(const int, const struct netbuf *,
+extern CLIENT *clnt_vc_ncreate(struct gfd gfd, const struct netbuf *,
 			       const rpcprog_t, const rpcvers_t, u_int, u_int);
 
-extern CLIENT *clnt_vc_ncreate2(const int, const struct netbuf *,
+extern CLIENT *clnt_vc_ncreate2(struct gfd gfd, const struct netbuf *,
 				const rpcprog_t, const rpcvers_t, u_int, u_int,
 				u_int);
 
@@ -452,7 +454,7 @@ extern CLIENT *clnt_vc_ncreate2(const int, const struct netbuf *,
 /*
  * Added for compatibility to old rpc 4.0. Obsoleted by clnt_vc_create().
  */
-extern CLIENT *clntunix_ncreate(struct sockaddr_un *, u_long, u_long, int *,
+extern CLIENT *clntunix_ncreate(struct sockaddr_un *, u_long, u_long, struct gfd *,
 				u_int, u_int);
 #endif
 
@@ -468,7 +470,7 @@ extern CLIENT *clntunix_ncreate(struct sockaddr_un *, u_long, u_long, int *,
 /*
  * Low level clnt create routine for connectionless transports, e.g. udp.
  */
-extern CLIENT *clnt_dg_ncreate(const int, const struct netbuf *,
+extern CLIENT *clnt_dg_ncreate(struct gfd gfd, const struct netbuf *,
 			       const rpcprog_t, const rpcvers_t, const u_int,
 			       const u_int);
 /*

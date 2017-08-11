@@ -648,7 +648,7 @@ svc_rqst_unhook_events(SVCXPRT *xprt /* LOCKED */ ,
 
 		/* clear epoll vector */
 		code = epoll_ctl(sr_rec->ev_u.epoll.epoll_fd,
-				 EPOLL_CTL_DEL, xprt->xp_fd, ev);
+				 EPOLL_CTL_DEL, xprt->xp_fd.fd, ev);
 		if (code) {
 			__warnx(TIRPC_DEBUG_FLAG_ERROR,
 				"%s: %p epoll del failed fd %d "
@@ -715,7 +715,7 @@ svc_rqst_rearm_events(SVCXPRT *xprt, uint32_t __attribute__ ((unused)) flags)
 
 			/* rearm in epoll vector */
 			code = epoll_ctl(sr_rec->ev_u.epoll.epoll_fd,
-					 EPOLL_CTL_MOD, xprt->xp_fd, ev);
+					 EPOLL_CTL_MOD, xprt->xp_fd.fd, ev);
 
 			__warnx(TIRPC_DEBUG_FLAG_SVC_RQST,
 				"%s: %p epoll arm fd %d "
@@ -765,7 +765,7 @@ svc_rqst_hook_events(SVCXPRT *xprt /* LOCKED */ ,
 
 		/* add to epoll vector */
 		code = epoll_ctl(sr_rec->ev_u.epoll.epoll_fd,
-				 EPOLL_CTL_ADD, xprt->xp_fd, ev);
+				 EPOLL_CTL_ADD, xprt->xp_fd.fd, ev);
 		if (code) {
 			__warnx(TIRPC_DEBUG_FLAG_ERROR,
 				"%s: %p epoll add failed fd %d "

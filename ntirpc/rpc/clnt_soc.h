@@ -64,7 +64,7 @@
  */
 __BEGIN_DECLS
 extern CLIENT * clnttcp_ncreate(struct sockaddr_in *, u_long,
-			       u_long, int *, u_int, u_int);
+			       u_long, struct gfd *, u_int, u_int);
 __END_DECLS
 /*
  * Raw (memory) rpc.
@@ -104,9 +104,9 @@ __END_DECLS
  */
 __BEGIN_DECLS
 extern CLIENT *clntudp_ncreate(struct sockaddr_in *, u_long,
-			       u_long, struct timeval, int *);
+			       u_long, struct timeval, struct gfd *);
 extern CLIENT *clntudp_nbufcreate(struct sockaddr_in *, u_long, u_long,
-				  struct timeval, int *, u_int, u_int);
+				  struct timeval, struct gfd *, u_int, u_int);
 #ifdef INET6
 extern CLIENT *clntudp6_ncreate(struct sockaddr_in6 *, u_long, u_long,
 				struct timeval, int *);

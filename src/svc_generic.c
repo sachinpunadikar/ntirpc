@@ -148,6 +148,7 @@ svc_tp_ncreate(void (*dispatch) (struct svc_req *req, SVCXPRT *xprt),
 	       const struct netconfig *nconf /* Network */)
 {
 	SVCXPRT *xprt;
+	struct gfd any_gfd = {RPC_ANYFD, 0};
 
 	if (nconf == NULL) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC,
@@ -155,7 +156,7 @@ svc_tp_ncreate(void (*dispatch) (struct svc_req *req, SVCXPRT *xprt),
 			"vers %u", (unsigned)prognum, (unsigned)versnum);
 		return (NULL);
 	}
-	xprt = svc_tli_ncreate(RPC_ANYFD, nconf, NULL, 0, 0);
+	xprt = svc_tli_ncreate(any_gfd, nconf, NULL, 0, 0);
 	if (xprt == NULL)
 		return (NULL);
 	/*LINTED const castaway */
@@ -181,7 +182,7 @@ svc_tp_ncreate(void (*dispatch) (struct svc_req *req, SVCXPRT *xprt),
  * If sendsz or recvsz are zero, their default values are chosen.
  */
 SVCXPRT *
-svc_tli_ncreate(int fd,	/* Connection end point */
+svc_tli_ncreate(struct gfd gfd,	/* Connection end point */
 		const struct netconfig *nconf,	/* Nettoken */
 		const struct t_bind *bindaddr,	/* Local bind address */
 		u_int sendsz,	/* Max sendsize */
@@ -192,15 +193,17 @@ svc_tli_ncreate(int fd,	/* Connection end point */
 	struct __rpc_sockinfo si;
 	struct sockaddr_storage ss;
 	socklen_t slen;
+	struct gfd any_gfd = {RPC_ANYFD, 0};
 
-	if (fd == RPC_ANYFD) {
+	if (gfd.fd == RPC_ANYFD) {
 		if (nconf == NULL) {
 			__warnx(TIRPC_DEBUG_FLAG_SVC,
 				"svc_tli_ncreate: invalid netconfig");
 			return (NULL);
 		}
-		fd = __rpc_nconf2fd(nconf);
-		if (fd == -1) {
+		gfd.fd = __rpc_nconf2fd(nconf);
+		gfd.gen = rpc_get_next_fdgen();
+		if (gfd.fd == -1) {
 			__warnx(TIRPC_DEBUG_FLAG_SVC,
 				"svc_tli_ncreate: could not open connection for %s",
 				nconf->nc_netid);
@@ -210,7 +213,7 @@ svc_tli_ncreate(int fd,	/* Connection end point */
 		if (!__rpc_nconf2sockinfo(nconf, &si)) {
 			__warnx(TIRPC_DEBUG_FLAG_SVC,
 				"svc_tli_create: could not get netconfig information");
-			close(fd);
+			close(gfd.fd);
 			return (NULL);
 		}
 		madefd = true;
@@ -218,7 +221,7 @@ svc_tli_ncreate(int fd,	/* Connection end point */
 		/*
 		 * It is an open descriptor. Get the transport info.
 		 */
-		if (!__rpc_fd2sockinfo(fd, &si)) {
+		if (!__rpc_fd2sockinfo(gfd.fd, &si)) {
 			__warnx(TIRPC_DEBUG_FLAG_SVC,
 				"svc_tli_create: could not get transport information");
 			return (NULL);
@@ -228,13 +231,13 @@ svc_tli_ncreate(int fd,	/* Connection end point */
 	/*
 	 * If the fd is unbound, try to bind it.
 	 */
-	if (madefd || !__rpc_sockisbound(fd)) {
+	if (madefd || !__rpc_sockisbound(gfd.fd)) {
 		if (bindaddr == NULL) {
-			if (bindresvport(fd, NULL) < 0) {
+			if (bindresvport(gfd.fd, NULL) < 0) {
 				memset(&ss, 0, sizeof(ss));
 				ss.ss_family = si.si_af;
 				if (bind
-				    (fd, (struct sockaddr *)(void *)&ss,
+				    (gfd.fd, (struct sockaddr *)(void *)&ss,
 				     (socklen_t) si.si_alen) < 0) {
 					__warnx(TIRPC_DEBUG_FLAG_SVC,
 						"svc_tli_ncreate: could not bind to "
@@ -242,17 +245,17 @@ svc_tli_ncreate(int fd,	/* Connection end point */
 					goto freedata;
 				}
 			}
-			listen(fd, SOMAXCONN);
+			listen(gfd.fd, SOMAXCONN);
 		} else {
 			if (bind
-			    (fd, (struct sockaddr *)bindaddr->addr.buf,
+			    (gfd.fd, (struct sockaddr *)bindaddr->addr.buf,
 			     (socklen_t) si.si_alen) < 0) {
 				__warnx(TIRPC_DEBUG_FLAG_SVC,
 					"svc_tli_ncreate: could not bind to requested "
 					"address");
 				goto freedata;
 			}
-			listen(fd, (int)bindaddr->qlen);
+			listen(gfd.fd, (int)bindaddr->qlen);
 		}
 
 	}
@@ -262,12 +265,12 @@ svc_tli_ncreate(int fd,	/* Connection end point */
 	switch (si.si_socktype) {
 	case SOCK_STREAM:
 		slen = sizeof(ss);
-		if (getpeername(fd, (struct sockaddr *)(void *)&ss, &slen)
+		if (getpeername(gfd.fd, (struct sockaddr *)(void *)&ss, &slen)
 		    == 0) {
 			/* accepted socket */
-			xprt = svc_fd_ncreate(fd, sendsz, recvsz);
+			xprt = svc_fd_ncreate(gfd, sendsz, recvsz);
 		} else
-			xprt = svc_vc_ncreate(fd, sendsz, recvsz);
+			xprt = svc_vc_ncreate(gfd, sendsz, recvsz);
 		if (!nconf || !xprt)
 			break;
 #if 0
@@ -278,7 +281,7 @@ svc_tli_ncreate(int fd,	/* Connection end point */
 #endif
 		break;
 	case SOCK_DGRAM:
-		xprt = svc_dg_ncreate(fd, sendsz, recvsz);
+		xprt = svc_dg_ncreate(gfd, sendsz, recvsz);
 		break;
 	default:
 		__warnx(TIRPC_DEBUG_FLAG_SVC,
@@ -304,10 +307,10 @@ svc_tli_ncreate(int fd,	/* Connection end point */
 
  freedata:
 	if (madefd)
-		(void)close(fd);
+		(void)close(gfd.fd);
 	if (xprt) {
 		if (!madefd)	/* so that svc_destroy doesnt close fd */
-			xprt->xp_fd = RPC_ANYFD;
+			xprt->xp_fd = any_gfd;
 		SVC_DESTROY(xprt);
 	}
 	return (NULL);

@@ -74,7 +74,7 @@ pmap_rmtcall(struct sockaddr_in *addr, u_long prog, u_long vers,
 	     xdrproc_t xdrres, caddr_t resp, struct timeval tout,
 	     u_long *port_ptr)
 {
-	int sock = -1;
+	struct gfd sock = {-1, 0};
 	CLIENT *client;
 	AUTH *auth;
 	struct rmtcallargs a;

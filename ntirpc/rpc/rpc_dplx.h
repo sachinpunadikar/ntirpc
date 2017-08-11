@@ -78,19 +78,19 @@ void rpc_dplx_ruc(CLIENT *client);
 	rpc_dplx_slfi(fd, __func__, __LINE__)
 
 /* slfi: send lock fd impl */
-void rpc_dplx_slfi(int fd, const char *file, int line);
+void rpc_dplx_slfi(struct gfd gfd, const char *file, int line);
 
 /* suf: send unlock fd */
-void rpc_dplx_suf(int fd);
+void rpc_dplx_suf(struct gfd gfd);
 
 /* rlf: recv lock fd */
 #define rpc_dplx_rlf(fd) \
 	rpc_dplx_rlfi(fd, __func__, __LINE__)
 
 /* rlfi: recv lock fd impl */
-void rpc_dplx_rlfi(int fd, const char *file, int line);
+void rpc_dplx_rlfi(struct gfd gfd, const char *file, int line);
 
 /* ruf: recv unlock fd */
-void rpc_dplx_ruf(int fd);
+void rpc_dplx_ruf(struct gfd gfd);
 
 #endif				/* RPC_DPLX_H */

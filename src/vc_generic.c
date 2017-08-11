@@ -65,7 +65,7 @@ clnt_read_vc(XDR *xdrs, void *ctp, void *buf, int len)
 	if (len == 0)
 		return (0);
 
-	fd.fd = xd->cx.data.ct_fd;
+	fd.fd = xd->cx.data.ct_fd.fd;
 	fd.events = POLLIN;
 	for (;;) {
 		switch (poll(&fd, 1, milliseconds)) {
@@ -83,7 +83,7 @@ clnt_read_vc(XDR *xdrs, void *ctp, void *buf, int len)
 		break;
 	}
 
-	len = read(xd->cx.data.ct_fd, buf, (size_t) len);
+	len = read(xd->cx.data.ct_fd.fd, buf, (size_t) len);
 
 	switch (len) {
 	case 0:
@@ -110,7 +110,7 @@ clnt_write_vc(XDR *xdrs, void *ctp, void *buf, int len)
 	int i = 0, cnt;
 
 	for (cnt = len; cnt > 0; cnt -= i, buf += i) {
-		i = write(xd->cx.data.ct_fd, buf, (size_t) cnt);
+		i = write(xd->cx.data.ct_fd.fd, buf, (size_t) cnt);
 		if (i == -1) {
 			ctx->error.re_errno = errno;
 			ctx->error.re_status = RPC_CANTSEND;
@@ -149,7 +149,7 @@ svc_read_vc(XDR *xdrs, void *ctp, void *buf, int len)
 	xprt = xd->rec->hdl.xprt;
 
 	if (xd->shared.nonblock) {
-		len = read(xprt->xp_fd, buf, (size_t) len);
+		len = read(xprt->xp_fd.fd, buf, (size_t) len);
 		if (len < 0) {
 			if (errno == EAGAIN)
 				len = 0;
@@ -163,7 +163,7 @@ svc_read_vc(XDR *xdrs, void *ctp, void *buf, int len)
 	}
 
 	do {
-		pollfd.fd = xprt->xp_fd;
+		pollfd.fd = xprt->xp_fd.fd;
 		pollfd.events = POLLIN;
 		pollfd.revents = 0;
 		switch (poll(&pollfd, 1, milliseconds)) {
@@ -180,7 +180,7 @@ svc_read_vc(XDR *xdrs, void *ctp, void *buf, int len)
 		}
 	} while ((pollfd.revents & POLLIN) == 0);
 
-	len = read(xprt->xp_fd, buf, (size_t) len);
+	len = read(xprt->xp_fd.fd, buf, (size_t) len);
 	if (len > 0) {
 		(void) clock_gettime(CLOCK_MONOTONIC_FAST, &xd->sx.last_recv);
 		return (len);
@@ -210,7 +210,7 @@ svc_write_vc(XDR *xdrs, void *ctp, void *buf, int len)
 		(void)clock_gettime(CLOCK_MONOTONIC_FAST, &ts0);
 
 	for (cnt = len; cnt > 0; cnt -= i, buf += i) {
-		i = write(xprt->xp_fd, buf, (size_t) cnt);
+		i = write(xprt->xp_fd.fd, buf, (size_t) cnt);
 		if (i < 0) {
 			if (errno != EAGAIN || !xd->shared.nonblock) {
 				__warnx(TIRPC_DEBUG_FLAG_SVC_VC,
@@ -286,8 +286,8 @@ vc_shared_destroy(struct x_vc_data *xd)
 
 	/* RECLOCKED */
 
-	if (ct->ct_closeit && ct->ct_fd != RPC_ANYFD) {
-		(void)close(ct->ct_fd);
+	if (ct->ct_closeit && ct->ct_fd.fd != RPC_ANYFD) {
+		(void)close(ct->ct_fd.fd);
 		closed = true;
 	}
 
@@ -308,8 +308,8 @@ vc_shared_destroy(struct x_vc_data *xd)
 		rec->hdl.xprt = NULL;	/* unreachable */
 
 		if (!closed) {
-			if (xprt->xp_fd != RPC_ANYFD)
-				(void)close(xprt->xp_fd);
+			if (xprt->xp_fd.fd != RPC_ANYFD)
+				(void)close(xprt->xp_fd.fd);
 		}
 
 		/* request socket */

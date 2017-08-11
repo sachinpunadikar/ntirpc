@@ -47,6 +47,13 @@
 #include "clnt_internal.h"
 #include "rpc_dplx_internal.h"
 
+uint64_t rpc_get_next_fdgen(void)
+{
+	static uint64_t fdgen = 0;
+
+	return atomic_inc_uint64_t(&fdgen);
+}
+
 /* public */
 
 void
@@ -152,10 +159,10 @@ rpc_dplx_cmpf(const struct opr_rbtree_node *lhs,
 	lk = opr_containerof(lhs, struct rpc_dplx_rec, node_k);
 	rk = opr_containerof(rhs, struct rpc_dplx_rec, node_k);
 
-	if (lk->fd_k < rk->fd_k)
+	if (lk->fd_k.gen < rk->fd_k.gen)
 		return (-1);
 
-	if (lk->fd_k == rk->fd_k)
+	if (lk->fd_k.gen == rk->fd_k.gen)
 		return (0);
 
 	return (1);
@@ -224,7 +231,7 @@ free_dplx_rec(struct rpc_dplx_rec *rec)
 }
 
 struct rpc_dplx_rec *
-rpc_dplx_lookup_rec(int fd, uint32_t iflags, uint32_t *oflags)
+rpc_dplx_lookup_rec(struct gfd gfd, uint32_t iflags, uint32_t *oflags)
 {
 	struct rbtree_x_part *t;
 	struct rpc_dplx_rec rk, *rec = NULL;
@@ -232,8 +239,8 @@ rpc_dplx_lookup_rec(int fd, uint32_t iflags, uint32_t *oflags)
 
 	cond_init_rpc_dplx();
 
-	rk.fd_k = fd;
-	t = rbtx_partition_of_scalar(&(rpc_dplx_rec_set.xt), fd);
+	rk.fd_k = gfd;
+	t = rbtx_partition_of_scalar(&(rpc_dplx_rec_set.xt), gfd.gen);
 
 	rwlock_rdlock(&t->lock);
 	nv = opr_rbtree_lookup(&t->t, &rk.node_k);
@@ -257,7 +264,7 @@ rpc_dplx_lookup_rec(int fd, uint32_t iflags, uint32_t *oflags)
 			/* tell the caller */
 			*oflags = RPC_DPLX_LKP_OFLAG_ALLOC;
 
-			rec->fd_k = fd;
+			rec->fd_k = gfd;
 
 			if (opr_rbtree_insert(&t->t, &rec->node_k)) {
 				/* cant happen */
@@ -289,11 +296,11 @@ rpc_dplx_lookup_rec(int fd, uint32_t iflags, uint32_t *oflags)
 }
 
 void
-rpc_dplx_slfi(int fd, const char *func, int line)
+rpc_dplx_slfi(struct gfd gfd, const char *func, int line)
 {
 	uint32_t oflags;
 	struct rpc_dplx_rec *rec =
-	    rpc_dplx_lookup_rec(fd, RPC_DPLX_FLAG_NONE, &oflags);
+	    rpc_dplx_lookup_rec(gfd, RPC_DPLX_FLAG_NONE, &oflags);
 	rpc_dplx_lock_t *lk = &rec->send.lock;
 
 	mutex_lock(&lk->we.mtx);
@@ -305,21 +312,21 @@ rpc_dplx_slfi(int fd, const char *func, int line)
 }
 
 void
-rpc_dplx_suf(int fd)
+rpc_dplx_suf(struct gfd gfd)
 {
 	uint32_t oflags;
 	struct rpc_dplx_rec *rec =
-	    rpc_dplx_lookup_rec(fd, RPC_DPLX_FLAG_NONE, &oflags);
+	    rpc_dplx_lookup_rec(gfd, RPC_DPLX_FLAG_NONE, &oflags);
 	/* assert: initialized */
 	mutex_unlock(&rec->send.lock.we.mtx);
 }
 
 void
-rpc_dplx_rlfi(int fd, const char *func, int line)
+rpc_dplx_rlfi(struct gfd gfd, const char *func, int line)
 {
 	uint32_t oflags;
 	struct rpc_dplx_rec *rec =
-	    rpc_dplx_lookup_rec(fd, RPC_DPLX_FLAG_NONE, &oflags);
+	    rpc_dplx_lookup_rec(gfd, RPC_DPLX_FLAG_NONE, &oflags);
 	rpc_dplx_lock_t *lk = &rec->recv.lock;
 
 	mutex_lock(&lk->we.mtx);
@@ -330,11 +337,11 @@ rpc_dplx_rlfi(int fd, const char *func, int line)
 }
 
 void
-rpc_dplx_ruf(int fd)
+rpc_dplx_ruf(struct gfd gfd)
 {
 	uint32_t oflags;
 	struct rpc_dplx_rec *rec =
-	    rpc_dplx_lookup_rec(fd, RPC_DPLX_FLAG_NONE, &oflags);
+	    rpc_dplx_lookup_rec(gfd, RPC_DPLX_FLAG_NONE, &oflags);
 	/* assert: initialized */
 	mutex_unlock(&rec->recv.lock.we.mtx);
 }
@@ -355,7 +362,7 @@ rpc_dplx_unref(struct rpc_dplx_rec *rec, u_int flags)
 		__func__, rec, refcnt);
 
 	if (rec->refcnt == 0) {
-		t = rbtx_partition_of_scalar(&rpc_dplx_rec_set.xt, rec->fd_k);
+		t = rbtx_partition_of_scalar(&rpc_dplx_rec_set.xt, rec->fd_k.gen);
 		REC_UNLOCK(rec);
 		rwlock_wrlock(&t->lock);
 		nv = opr_rbtree_lookup(&t->t, &rec->node_k);

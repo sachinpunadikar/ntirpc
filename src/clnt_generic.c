@@ -46,6 +46,7 @@
 #include <unistd.h>
 
 #include "rpc_com.h"
+#include "misc/rpc_dplx_gfd.h"
 
 int __rpc_raise_fd(int);
 
@@ -274,6 +275,7 @@ clnt_tp_ncreate_timed(const char *hostname, rpcprog_t prog,
 {
 	struct netbuf *svcaddr;	/* servers address */
 	CLIENT *cl = NULL;	/* client handle */
+	struct gfd any_gfd = {RPC_ANYFD, 0};
 
 	if (nconf == NULL) {
 		rpc_createerr.cf_stat = RPC_UNKNOWNPROTO;
@@ -293,7 +295,7 @@ clnt_tp_ncreate_timed(const char *hostname, rpcprog_t prog,
 	}
 	if (cl == NULL) {
 		/* __rpc_findaddr_timed failed? */
-		cl = clnt_tli_ncreate(RPC_ANYFD, nconf, svcaddr, prog, vers, 0,
+		cl = clnt_tli_ncreate(any_gfd, nconf, svcaddr, prog, vers, 0,
 				      0);
 	} else {
 		/* Reuse the CLIENT handle and change the appropriate fields */
@@ -306,7 +308,7 @@ clnt_tp_ncreate_timed(const char *hostname, rpcprog_t prog,
 			(void)CLNT_CONTROL(cl, CLSET_VERS, (void *)&vers);
 		} else {
 			CLNT_DESTROY(cl);
-			cl = clnt_tli_ncreate(RPC_ANYFD, nconf, svcaddr, prog,
+			cl = clnt_tli_ncreate(any_gfd, nconf, svcaddr, prog,
 					      vers, 0, 0);
 		}
 	}
@@ -324,7 +326,7 @@ clnt_tp_ncreate_timed(const char *hostname, rpcprog_t prog,
  * If sizes are 0; appropriate defaults will be chosen.
  */
 CLIENT *
-clnt_tli_ncreate(int fd, const struct netconfig *nconf,
+clnt_tli_ncreate(struct gfd gfd, const struct netconfig *nconf,
 		 struct netbuf *svcaddr, rpcprog_t prog,
 		 rpcvers_t vers, u_int sendsz, u_int recvsz)
 {
@@ -335,25 +337,26 @@ clnt_tli_ncreate(int fd, const struct netconfig *nconf,
 	struct __rpc_sockinfo si;
 	extern int __rpc_minfd;
 
-	if (fd == RPC_ANYFD) {
+	if (gfd.fd == RPC_ANYFD) {
 		if (nconf == NULL) {
 			rpc_createerr.cf_stat = RPC_UNKNOWNPROTO;
 			return (NULL);
 		}
 
-		fd = __rpc_nconf2fd(nconf);
+		gfd.fd = __rpc_nconf2fd(nconf);
+		gfd.gen = rpc_get_next_fdgen();
 
-		if (fd == -1)
+		if (gfd.fd == -1)
 			goto err;
-		if (fd < __rpc_minfd)
-			fd = __rpc_raise_fd(fd);
+		if (gfd.fd < __rpc_minfd)
+			gfd.fd = __rpc_raise_fd(gfd.fd);
 		madefd = true;
 		servtype = nconf->nc_semantics;
-		if (!__rpc_fd2sockinfo(fd, &si))
+		if (!__rpc_fd2sockinfo(gfd.fd, &si))
 			goto err;
-		bindresvport(fd, NULL);
+		bindresvport(gfd.fd, NULL);
 	} else {
-		if (!__rpc_fd2sockinfo(fd, &si))
+		if (!__rpc_fd2sockinfo(gfd.fd, &si))
 			goto err;
 		servtype = __rpc_socktype2seman(si.si_socktype);
 		if (servtype == -1) {
@@ -369,18 +372,18 @@ clnt_tli_ncreate(int fd, const struct netconfig *nconf,
 
 	switch (servtype) {
 	case NC_TPI_COTS:
-		cl = clnt_vc_ncreate(fd, svcaddr, prog, vers, sendsz, recvsz);
+		cl = clnt_vc_ncreate(gfd, svcaddr, prog, vers, sendsz, recvsz);
 		break;
 	case NC_TPI_COTS_ORD:
 		if (nconf && ((strcmp(nconf->nc_protofmly, "inet") == 0)
 			      || (strcmp(nconf->nc_protofmly, "inet6") == 0))) {
-			(void) setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one,
+			(void) setsockopt(gfd.fd, IPPROTO_TCP, TCP_NODELAY, &one,
 					  sizeof(one));
 		}
-		cl = clnt_vc_ncreate(fd, svcaddr, prog, vers, sendsz, recvsz);
+		cl = clnt_vc_ncreate(gfd, svcaddr, prog, vers, sendsz, recvsz);
 		break;
 	case NC_TPI_CLTS:
-		cl = clnt_dg_ncreate(fd, svcaddr, prog, vers, sendsz, recvsz);
+		cl = clnt_dg_ncreate(gfd, svcaddr, prog, vers, sendsz, recvsz);
 		break;
 	default:
 		goto err;
@@ -406,7 +409,7 @@ clnt_tli_ncreate(int fd, const struct netconfig *nconf,
 	rpc_createerr.cf_stat = RPC_SYSTEMERROR;
 	rpc_createerr.cf_error.re_errno = errno;
  err1:	if (madefd)
-		(void)close(fd);
+		(void)close(gfd.fd);
 	return (NULL);
 }
 

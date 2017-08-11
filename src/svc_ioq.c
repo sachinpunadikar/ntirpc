@@ -151,7 +151,7 @@ ioq_flushv(SVCXPRT *xprt, struct x_vc_data *xd, struct xdr_ioq *xioq)
 		}
 
 		/* blocking write */
-		result = writev(xprt->xp_fd, wiov, iw);
+		result = writev(xprt->xp_fd.fd, wiov, iw);
 		remaining -= result;
 
 		if (result == fbytes) {

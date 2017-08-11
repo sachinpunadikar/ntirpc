@@ -274,6 +274,7 @@ static CLIENT *getclnthandle(const char *host, const struct netconfig *nconf,
 	struct addrinfo hints, *res, *tres;
 	struct address_cache *ad_cache;
 	char *tmpaddr;
+	struct gfd any_gfd = {RPC_ANYFD, 0};
 
 	memset(&addr_to_delete, '\0', sizeof(addr_to_delete));
 
@@ -291,7 +292,7 @@ static CLIENT *getclnthandle(const char *host, const struct netconfig *nconf,
 	if (ad_cache != NULL) {
 		addr = ad_cache->ac_taddr;
 		client =
-		    clnt_tli_ncreate(RPC_ANYFD, nconf, addr,
+		    clnt_tli_ncreate(any_gfd, nconf, addr,
 				     (rpcprog_t) RPCBPROG,
 				     (rpcvers_t) RPCBVERS4, 0, 0);
 		if (client != NULL) {
@@ -388,7 +389,7 @@ static CLIENT *getclnthandle(const char *host, const struct netconfig *nconf,
 		}
 #endif
 		client =
-		    clnt_tli_ncreate(RPC_ANYFD, nconf, &taddr,
+		    clnt_tli_ncreate(any_gfd, nconf, &taddr,
 				     (rpcprog_t) RPCBPROG,
 				     (rpcvers_t) RPCBVERS4, 0, 0);
 #ifdef ND_DEBUG
@@ -1170,7 +1171,7 @@ static CLIENT *local_rpcb(void)
 	static struct netconfig *loopnconf;
 	static char *hostname;
 	extern mutex_t loopnconf_lock;
-	int sock;
+	struct gfd sock;
 	size_t tsize;
 	struct netbuf nbuf;
 	struct sockaddr_un sun;
@@ -1181,8 +1182,9 @@ static CLIENT *local_rpcb(void)
 	 * the netconfig file.
 	 */
 	memset(&sun, 0, sizeof(sun));
-	sock = socket(AF_LOCAL, SOCK_STREAM, 0);
-	if (sock < 0)
+	sock.fd = socket(AF_LOCAL, SOCK_STREAM, 0);
+	sock.gen = rpc_get_next_fdgen();
+	if (sock.fd < 0)
 		goto try_nconf;
 	sun.sun_family = AF_LOCAL;
 	strcpy(sun.sun_path, _PATH_RPCBINDSOCK);
@@ -1202,7 +1204,7 @@ static CLIENT *local_rpcb(void)
 	}
 
 	/* Nobody needs this socket anymore; free the descriptor. */
-	close(sock);
+	close(sock.fd);
 
  try_nconf:
 	/* VARIABLES PROTECTED BY loopnconf_lock: loopnconf */

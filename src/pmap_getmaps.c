@@ -64,7 +64,7 @@
 struct pmaplist *pmap_getmaps(struct sockaddr_in *address)
 {
 	struct pmaplist *head = NULL;
-	int sock = -1;
+	struct gfd sock = {-1, 0};
 	struct timeval minutetimeout;
 	CLIENT *client;
 	AUTH *auth;

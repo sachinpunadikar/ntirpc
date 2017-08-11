@@ -97,7 +97,7 @@ static const char svc_dg_err2[] = " transport does not support data transfer";
 static const char __no_mem_str[] = "out of memory";
 
 SVCXPRT *
-svc_dg_ncreate(int fd, u_int sendsize, u_int recvsize)
+svc_dg_ncreate(struct gfd gfd, u_int sendsize, u_int recvsize)
 {
 	SVCXPRT *xprt;
 	struct svc_dg_data *su = NULL;
@@ -106,7 +106,7 @@ svc_dg_ncreate(int fd, u_int sendsize, u_int recvsize)
 	socklen_t slen;
 	uint32_t oflags;
 
-	if (!__rpc_fd2sockinfo(fd, &si)) {
+	if (!__rpc_fd2sockinfo(gfd.fd, &si)) {
 		__warnx(TIRPC_DEBUG_FLAG_SVC_DG, svc_dg_str, svc_dg_err1);
 		return (NULL);
 	}
@@ -143,12 +143,12 @@ svc_dg_ncreate(int fd, u_int sendsize, u_int recvsize)
 	su->su_cache = NULL;
 	xprt->xp_flags = SVC_XPRT_FLAG_NONE;
 	xprt->xp_refs = 1;
-	xprt->xp_fd = fd;
+	xprt->xp_fd = gfd;
 	xprt->xp_p2 = su;
 	svc_dg_ops(xprt);
 
 	slen = sizeof(ss);
-	if (getsockname(fd, (struct sockaddr *)(void *)&ss, &slen) < 0)
+	if (getsockname(gfd.fd, (struct sockaddr *)(void *)&ss, &slen) < 0)
 		goto freedata;
 
 	__rpc_set_address(&xprt->xp_local, &ss, slen);
@@ -170,7 +170,7 @@ svc_dg_ncreate(int fd, u_int sendsize, u_int recvsize)
 	}
 
 	/* Enable reception of IP*_PKTINFO control msgs */
-	svc_dg_enable_pktinfo(fd, &si);
+	svc_dg_enable_pktinfo(gfd.fd, &si);
 
 	/* Make reachable */
 	xprt->xp_p5 = rpc_dplx_lookup_rec(
@@ -273,7 +273,7 @@ svc_dg_recv(SVCXPRT *xprt, struct svc_req *req)
 	mesgp->msg_control = su->su_cmsg;
 	mesgp->msg_controllen = sizeof(su->su_cmsg);
 
-	rlen = recvmsg(xprt->xp_fd, mesgp, 0);
+	rlen = recvmsg(xprt->xp_fd.fd, mesgp, 0);
 
 	if (sp->sa_family == (sa_family_t) 0xffff)
 		return false;
@@ -338,7 +338,7 @@ svc_dg_recv(SVCXPRT *xprt, struct svc_req *req)
 				mesgp->msg_controllen =
 					CMSG_ALIGN(cmsg->cmsg_len);
 			}
-			(void)sendmsg(xprt->xp_fd, mesgp, 0);
+			(void)sendmsg(xprt->xp_fd.fd, mesgp, 0);
 			return (false);
 		}
 	}
@@ -397,7 +397,7 @@ svc_dg_reply(SVCXPRT *xprt, struct svc_req *req, struct rpc_msg *msg)
 			msg->msg_controllen = CMSG_ALIGN(cmsg->cmsg_len);
 		}
 
-		if (sendmsg(xprt->xp_fd, msg, 0) == (ssize_t) slen) {
+		if (sendmsg(xprt->xp_fd.fd, msg, 0) == (ssize_t) slen) {
 			stat = true;
 			if (su->su_cache)
 				svc_dg_cache_set(xprt, slen);
@@ -461,8 +461,8 @@ svc_dg_destroy(SVCXPRT *xprt, u_int flags, const char *tag, const int line)
 		" should actually destroy things @ %s:%d",
 		__func__, xprt, xprt->xp_refs, tag, line);
 
-	if (xprt->xp_fd != -1)
-		(void)close(xprt->xp_fd);
+	if (xprt->xp_fd.fd != -1)
+		(void)close(xprt->xp_fd.fd);
 
 	XDR_DESTROY(&(su->su_xdrs));
 	(void)mem_free(rpc_buffer(xprt), su->su_iosz);
