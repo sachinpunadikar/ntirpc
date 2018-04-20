@@ -280,6 +280,36 @@ static void svc_dg_set_pktinfo(struct cmsghdr *cmsg, struct svc_req *req)
 	}
 }
 
+void
+__rpc_copy_address(struct rpc_address *rpca, const struct sockaddr_storage *ss,
+                  socklen_t sl)
+{
+        socklen_t len;
+
+        switch (ss->ss_family) {
+        case AF_INET6:
+                len = sl ? sl : sizeof(struct sockaddr_in6);
+                memcpy(&rpca->ss, ss, len);
+                break;
+        case AF_INET:
+                len = sl ? sl : sizeof(struct sockaddr_in);
+                memcpy(&rpca->ss, ss, len);
+                break;
+        case AF_LOCAL:
+                len = sl ? sl : sizeof(struct sockaddr);
+                memcpy(&rpca->ss, ss, len);
+                break;
+        default:
+                memset(&rpca->ss, 0xfe, sizeof(struct sockaddr_storage));
+                len = sl ? sl : sizeof(struct sockaddr);
+                rpca->ss.ss_family = AF_UNSPEC;
+                break;
+        }
+        rpca->nb.buf = &rpca->ss;
+        rpca->nb.len = len;
+        rpca->nb.maxlen = sizeof(struct sockaddr_storage);
+}
+
 static bool
 svc_dg_recv(struct svc_req *req)
 {
@@ -287,15 +317,14 @@ svc_dg_recv(struct svc_req *req)
 	struct rpc_dplx_rec *rec = REC_XPRT(xprt);
 	struct svc_dg_xprt *su = DG_DR(rec);
 	XDR *xdrs = &(su->su_xdrs);
-	struct sockaddr *sp = (struct sockaddr *)&xprt->xp_remote.ss;
+	struct sockaddr_storage ss;
+	struct sockaddr *sp = (struct sockaddr *)&ss;
 	struct msghdr *mesgp;
 	struct iovec iov;
 	ssize_t rlen;
 	uint16_t xp_flags;
 
 	rpc_msg_init(&req->rq_msg);
-
-	__rpc_address_setup(&xprt->xp_remote);
 
 	/* XXX same XDR used in both directions */
 	rpc_dplx_rli(rec);
@@ -330,7 +359,8 @@ svc_dg_recv(struct svc_req *req)
 	if (rlen == -1 || (rlen < (ssize_t) (4 * sizeof(u_int32_t))))
 		return (false);
 
-	xprt->xp_remote.nb.len = mesgp->msg_namelen;
+	/* copy the address */
+	__rpc_copy_address(&xprt->xp_remote, &ss, mesgp->msg_namelen);
 
 	/* Check whether there's an IP_PKTINFO or IP6_PKTINFO control message.
 	 * If yes, preserve it for svc_dg_reply; otherwise just zap any cmsgs */
