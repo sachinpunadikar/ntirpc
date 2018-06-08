@@ -83,17 +83,25 @@
  * multiple interfaces.  The size is selected to be larger than expected number
  * of concurrently active interfaces.  Size must be a power of 2 for mask.
  */
-#define IOQ_IF_SIZE (16)
-#define IOQ_IF_MASK (IOQ_IF_SIZE - 1)
-struct poolq_head ioq_ifqh[IOQ_IF_SIZE];
+int ioq_if_size;
+#define IOQ_IF_MASK (ioq_if_size - 1)
+struct poolq_head *ioq_ifqh;
 
 void
-svc_ioq_init(void)
+svc_ioq_init(uint32_t thrd_max)
 {
-	struct poolq_head *ifph = &ioq_ifqh[0];
-	int i = 0;
+	struct poolq_head *ifph;
+	int i;
 
-	for (; i < IOQ_IF_SIZE; ifph++, i++) {
+	/* Make ioq_if_size a power of 2 for IOQ_IF_MASK to work */
+	ioq_if_size = 2;
+	while (ioq_if_size < thrd_max)
+		ioq_if_size <<= 1;
+
+	ioq_ifqh = mem_calloc(ioq_if_size, sizeof(struct poolq_head));
+	ifph = &ioq_ifqh[0];
+
+	for (i = 0; i < ioq_if_size; ifph++, i++) {
 		ifph->qcount = 0;
 		TAILQ_INIT(&ifph->qh);
 		mutex_init(&ifph->qmutex, NULL);
@@ -248,7 +256,7 @@ svc_ioq_write_callback(struct work_pool_entry *wpe)
 {
 	struct xdr_ioq *xioq = opr_containerof(wpe, struct xdr_ioq, ioq_wpe);
 	SVCXPRT *xprt = (SVCXPRT *)xioq->xdrs[0].x_lib[1];
-	struct poolq_head *ifph = &ioq_ifqh[xprt->xp_ifindex & IOQ_IF_MASK];
+	struct poolq_head *ifph = &ioq_ifqh[xprt->xp_fd & IOQ_IF_MASK];
 
 	svc_ioq_write(xprt, xioq, ifph);
 }
@@ -256,7 +264,7 @@ svc_ioq_write_callback(struct work_pool_entry *wpe)
 void
 svc_ioq_write_now(SVCXPRT *xprt, struct xdr_ioq *xioq)
 {
-	struct poolq_head *ifph = &ioq_ifqh[xprt->xp_ifindex & IOQ_IF_MASK];
+	struct poolq_head *ifph = &ioq_ifqh[xprt->xp_fd & IOQ_IF_MASK];
 
 	SVC_REF(xprt, SVC_REF_FLAG_NONE);
 	mutex_lock(&ifph->qmutex);
@@ -285,7 +293,7 @@ svc_ioq_write_now(SVCXPRT *xprt, struct xdr_ioq *xioq)
 void
 svc_ioq_write_submit(SVCXPRT *xprt, struct xdr_ioq *xioq)
 {
-	struct poolq_head *ifph = &ioq_ifqh[xprt->xp_ifindex & IOQ_IF_MASK];
+	struct poolq_head *ifph = &ioq_ifqh[xprt->xp_fd & IOQ_IF_MASK];
 
 	SVC_REF(xprt, SVC_REF_FLAG_NONE);
 	mutex_lock(&ifph->qmutex);
