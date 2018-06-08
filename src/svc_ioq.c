@@ -83,7 +83,7 @@
  * multiple interfaces.  The size is selected to be larger than expected number
  * of concurrently active interfaces.  Size must be a power of 2 for mask.
  */
-#define IOQ_IF_SIZE (16)
+#define IOQ_IF_SIZE (64)
 #define IOQ_IF_MASK (IOQ_IF_SIZE - 1)
 struct poolq_head ioq_ifqh[IOQ_IF_SIZE];
 

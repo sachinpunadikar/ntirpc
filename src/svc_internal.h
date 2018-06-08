@@ -35,6 +35,7 @@
 
 extern int __svc_maxiov;
 extern int __svc_maxrec;
+extern uint32_t __svc_ifindex;
 
 /* threading fdsets around is annoying */
 struct svc_params {

@@ -319,6 +319,9 @@ svc_fd_ncreatef(const int fd, const u_int sendsize, const u_int recvsize,
 	__rpc_set_blkin_endpoint(xprt, "svc_vc");
 #endif
 
+	/* set interface index */
+	xprt->xp_ifindex = atomic_postinc_uint32_t(&__svc_ifindex);
+
 	return (xprt);
 }
 
@@ -421,6 +424,9 @@ makefd_xprt(const int fd, const u_int sendsz, const u_int recvsz,
 	/* release */
 	rpc_dplx_rui(rec);
 	XPRT_TRACE(xprt, __func__, __func__, __LINE__);
+
+	/* set interface index */
+	xprt->xp_ifindex = atomic_postinc_uint32_t(&__svc_ifindex);
 
 	return (xprt);
 }

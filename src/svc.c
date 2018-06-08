@@ -91,6 +91,8 @@ int __svc_maxiov = 1024; /* UIO_MAXIOV value from sys/uio.h */
 #endif
 int __svc_maxrec = 0;
 
+uint32_t __svc_ifindex; /* monotonically increasing one */
+
 struct svc_params __svc_params[1] = {
 	{
 	 false /* !initialized */ ,
