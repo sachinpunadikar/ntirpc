@@ -153,7 +153,7 @@ svc_init(svc_init_params *params)
 	__svc_params->xprt_u.vc.nconns = 0;
 	mutex_init(&__svc_params->xprt_u.vc.mtx, NULL);
 
-	svc_ioq_init();
+	svc_ioq_init(params->ioq_thrd_max ? params->ioq_thrd_max : 200);
 
 #if defined(HAVE_BLKIN)
 	if (params->flags & SVC_INIT_BLKIN) {
