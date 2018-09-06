@@ -90,6 +90,8 @@ struct xdr_ioq {
 	struct xdr_ioq_uv_head ioq_uv;	/* header/vectors */
 
 	uint64_t id;
+	struct timespec start_time;
+	int ioq_latency;
 };
 
 #define _IOQ(p) (opr_containerof((p), struct xdr_ioq, ioq_s))

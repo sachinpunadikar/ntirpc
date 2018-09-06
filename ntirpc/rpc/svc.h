@@ -809,6 +809,9 @@ extern bool svc_validate_xprt_list(SVCXPRT *);
 
 int __rpc_get_local_uid(SVCXPRT *, uid_t *);
 
+extern void dump_sendq_stats(void);
+extern void reset_sendq_stats(void);
+
 __END_DECLS
 /* for backward compatibility */
 #include <rpc/svc_soc.h>

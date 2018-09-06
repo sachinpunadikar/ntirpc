@@ -80,6 +80,7 @@ NTIRPC_${NTIRPC_VERSION} {
     clntunix_ncreate;
 
     # e*
+    dump_sendq_stats;
     endnetconfig;
     endnetpath;
     endrpcent;
@@ -123,6 +124,7 @@ NTIRPC_${NTIRPC_VERSION} {
     # r*
     rbtx_init;
     registerrpc;
+    reset_sendq_stats;
     rpc_broadcast;
     rpc_broadcast_exp;
     rpc_call;
