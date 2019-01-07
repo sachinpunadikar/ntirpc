@@ -79,8 +79,11 @@ NTIRPC_${NTIRPC_VERSION} {
     clntudp_ncreate;
     clntunix_ncreate;
 
+    # d*
+    disable_sendq_stats;
+
     # e*
-    dump_sendq_stats;
+    enable_sendq_stats;
     endnetconfig;
     endnetpath;
     endrpcent;
@@ -97,6 +100,7 @@ NTIRPC_${NTIRPC_VERSION} {
     getrpcbynumber;
     getrpcbyname;
     getrpcport;
+    get_sendq_stats;
 
     # n*
     nc_perror;

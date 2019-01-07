@@ -127,6 +127,7 @@ cfconn_set_dead(SVCXPRT *xprt)
 static uint64_t sq_count;
 static uint64_t sq_wait; /* cumulative */
 static uint64_t sq_max;
+bool SendqStatsEnabled = false;
 
 void reset_sendq_stats(void)
 {
@@ -143,32 +144,23 @@ void record_sendq_stats(uint64_t wait_time)
 		(void)atomic_store_uint64_t(&sq_max, wait_time);
 }
 
-#define NS_PER_MSEC ((uint64_t) 1000000)
+void enable_sendq_stats()
+{
+	SendqStatsEnabled = true;
+}
+
+void disable_sendq_stats()
+{
+	SendqStatsEnabled = false;
+}
+
 #define NS_PER_SEC ((uint64_t)1000000000)
 
-void dump_sendq_stats(void)
+void get_sendq_stats(uint64_t *count, uint64_t *wait, uint64_t *max)
 {
-        FILE *fp;
-        time_t t = time(NULL);
-        struct tm tm = *localtime(&t);
-        char datetime[30];
-
-        fp = fopen("/tmp/ganesha-sendq-stats.txt", "a");
-        if (fp == NULL)
-                return;
-
-        snprintf(datetime, sizeof(datetime),
-                        "%04d-%02d-%02dT%02d-%02d-%02d",
-                        tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                        tm.tm_hour, tm.tm_min, tm.tm_sec);
-        fprintf(fp, "Stats extracted at %s, times are in ms\n", datetime);
-        fprintf(fp, "total\t\taverage\t\tmax\n");
-	if (sq_count) {
-		fprintf(fp, "%lu\t\t%f\t\t%f\n", sq_count,
-			(float)sq_wait/sq_count/NS_PER_MSEC,
-			(float)sq_max/NS_PER_MSEC);
-	}
-        fclose(fp);
+	*count = sq_count;
+	*wait = sq_wait;
+	*max = sq_max;
 }
 
 static inline void now(struct timespec *ts)
@@ -209,10 +201,13 @@ svc_ioq_flushv(SVCXPRT *xprt, struct xdr_ioq *xioq)
 	struct timespec end_time;
 	uint64_t wait_time;
 
-	now(&end_time);
-	if (!(xioq->start_time.tv_sec == 0 && xioq->start_time.tv_nsec == 0)) {
-		wait_time = timespec_diff(&xioq->start_time, &end_time);
-		record_sendq_stats(wait_time);
+	if (SendqStatsEnabled) {
+		now(&end_time);
+		if (!(xioq->start_time.tv_sec == 0 &&
+				 xioq->start_time.tv_nsec == 0)) {
+			wait_time = timespec_diff(&xioq->start_time, &end_time);
+			record_sendq_stats(wait_time);
+		}
 	}
 
 	if (unlikely(vsize > MAXALLOCA)) {
