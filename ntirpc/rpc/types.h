@@ -155,13 +155,6 @@ typedef int32_t rpc_inline_t;
 #define TIRPC_DEBUG_FLAG_DEFAULT \
 	(TIRPC_DEBUG_FLAG_ERROR | TIRPC_DEBUG_FLAG_EVENT)
 
-typedef void *(*mem_1_size_t) (size_t,
-	     const char *file, int line, const char *function);
-typedef void *(*mem_2_size_t) (size_t, size_t,
-	     const char *file, int line, const char *function);
-typedef void *(*mem_p_size_t) (void *, size_t,
-	     const char *file, int line, const char *function);
-typedef void (*mem_free_size_t) (void *, size_t);
 typedef void (*mem_format_t) (const char *fmt, ...);
 
 /*
@@ -171,11 +164,6 @@ typedef struct tirpc_pkg_params {
 	uint32_t debug_flags;
 	uint32_t other_flags;
 	mem_format_t	warnx_;
-	mem_free_size_t	free_size_;
-	mem_1_size_t	malloc_;
-	mem_2_size_t	aligned_;
-	mem_2_size_t	calloc_;
-	mem_p_size_t	realloc_;
 } tirpc_pkg_params;
 
 extern tirpc_pkg_params __ntirpc_pkg_params;
@@ -191,22 +179,18 @@ extern tirpc_pkg_params __ntirpc_pkg_params;
 
 #define __debug_flag(flags) (__ntirpc_pkg_params.debug_flags & (flags))
 
-#define mem_alloc(size) __ntirpc_pkg_params.malloc_((size), \
-			__FILE__, __LINE__, __func__)
-#define mem_aligned(align, size) __ntirpc_pkg_params.aligned_((align), (size), \
-			__FILE__, __LINE__, __func__)
-#define mem_calloc(count, size) __ntirpc_pkg_params.calloc_((count), (size), \
-			__FILE__, __LINE__, __func__)
-#define mem_realloc(p, size) __ntirpc_pkg_params.realloc_((p), (size), \
-			__FILE__, __LINE__, __func__)
-#define mem_zalloc(size) __ntirpc_pkg_params.calloc_(1, (size), \
-			__FILE__, __LINE__, __func__)
+#define mem_alloc(size) malloc(size)
+#define mem_calloc(count, size) calloc(count, size)
+#define mem_realloc(p, size) realloc(p, size)
+#define mem_zalloc(size) calloc(1, size)
+#define mem_aligned(align, size) ({ \
+	void *p_; \
+	if (posix_memalign(&p_, align, size) != 0) \
+		abort(); \
+	p_; \
+	})
 
-static inline void
-mem_free(void *p, size_t n)
-{
-	__ntirpc_pkg_params.free_size_(p, n);
-}
+#define mem_free(p, n) free(p)
 
 /*
  * Uses allocator with indirections, if any.
@@ -214,17 +198,13 @@ mem_free(void *p, size_t n)
 
 #include <string.h>
 
-static inline void *
-mem_strdup_(const char *s, const char *file, int line, const char *function)
-{
-	size_t l = strlen(s) + 1;
-	void *t = __ntirpc_pkg_params.malloc_(l, file, line, function);
-
-	memcpy(t, s, l);
-	return (t);
-}
-
-#define mem_strdup(s) mem_strdup_((s), __FILE__, __LINE__, __func__)
+#define mem_strdup(s) ({ \
+	void *p_; size_t l_; \
+	l_ = strlen(s) + 1; \
+	p_ = malloc(l_); \
+	memcpy(p_, s, l_); \
+	p_; \
+	})
 
 #ifndef _MSC_VER
 #include <sys/time.h>

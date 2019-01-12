@@ -69,65 +69,10 @@ thr_keyfree(void *k)
 	mem_free(k, 0);	/* XXX */
 }
 
-static void
-tirpc_free(void *p, size_t unused)
-{
-	free(p);
-}
-
-static void *
-tirpc_malloc(size_t size, const char *file, int line, const char *function)
-{
-	void *r = malloc(size);
-
-	assert(r != NULL);
-	return r;
-}
-
-static void *
-tirpc_aligned(size_t alignment, size_t size, const char *file, int line,
-	      const char *function)
-{
-	void *r;
-
-#if defined(_ISOC11_SOURCE)
-	r = aligned_alloc(alignment, size);
-#else
-	(void) posix_memalign(&r, alignment, size);
-#endif
-	assert(r != NULL);
-	return r;
-}
-
-static void *
-tirpc_calloc(size_t count, size_t size, const char *file, int line,
-	     const char *function)
-{
-	void *r = calloc(count, size);
-
-	assert(r != NULL);
-	return r;
-}
-
-static void *
-tirpc_realloc(void *p, size_t size, const char *file, int line,
-	      const char *function)
-{
-	void *r = realloc(p, size);
-
-	assert(r != NULL);
-	return r;
-}
-
 tirpc_pkg_params __ntirpc_pkg_params = {
 	TIRPC_FLAG_NONE,
 	TIRPC_DEBUG_FLAG_NONE,
 	warnx,
-	tirpc_free,
-	tirpc_malloc,
-	tirpc_aligned,
-	tirpc_calloc,
-	tirpc_realloc,
 };
 
 bool
