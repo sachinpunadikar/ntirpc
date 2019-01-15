@@ -246,20 +246,8 @@ svc_dg_stat(SVCXPRT *xprt)
 
 static void svc_dg_set_pktinfo(struct cmsghdr *cmsg, struct svc_req *req)
 {
-	/* Linux kernel may present IP_PKTINFO on AF_INET6 sockets.
-	 * In such a case, use IP_PKTINFO rather than IP6_PKTINFO
-	 *
-	 * Some kernels have a bug with using IP6_PKTINFO with
-	 * IPv4mapped addresses! See Linux kernel commit with
-	 * "ipv6: honor IPV6_PKTINFO with v4 mapped addresses on
-	 * sendmsg" subject.
-	 */
-
-	/* Here we use rq_daddr_len to differentiate IP_PKTINFO vs
-	 * IP6_PKTINFO. Hopefully the rq_daddr_len is different for IPv4
-	 * vs IPv6.
-	 */
-	if (req->rq_daddr_len == sizeof(struct sockaddr_in)) {
+	switch (req->rq_daddr.ss_family) {
+	case AF_INET: {
 		struct in_pktinfo *pki = (struct in_pktinfo *)CMSG_DATA(cmsg);
 		struct sockaddr_in *daddr =
 			(struct sockaddr_in *)&req->rq_daddr;
@@ -273,7 +261,9 @@ static void svc_dg_set_pktinfo(struct cmsghdr *cmsg, struct svc_req *req)
 		pki->ipi_spec_dst = daddr->sin_addr;
 #endif
 		cmsg->cmsg_len = CMSG_LEN(sizeof(*pki));
-	} else {
+		break;
+	}
+	case AF_INET6: {
 		struct in6_pktinfo *pki = (struct in6_pktinfo *)CMSG_DATA(cmsg);
 		struct sockaddr_in6 *daddr =
 			(struct sockaddr_in6 *)&req->rq_daddr;
@@ -283,6 +273,10 @@ static void svc_dg_set_pktinfo(struct cmsghdr *cmsg, struct svc_req *req)
 		pki->ipi6_ifindex = daddr->sin6_scope_id;
 		pki->ipi6_addr = daddr->sin6_addr;
 		cmsg->cmsg_len = CMSG_LEN(sizeof(*pki));
+		break;
+	}
+	default:
+	       break;
 	}
 }
 
@@ -435,7 +429,6 @@ svc_dg_reply(struct svc_req *req)
 		struct msghdr *msg = &su->su_msghdr;
 		struct cmsghdr *cmsg;
 		struct iovec iov;
-		char buffer[SVC_CMSG_SIZE];
 
 		iov.iov_base = rpc_buffer(xprt);
 		iov.iov_len = slen = XDR_GETPOS(xdrs);
@@ -446,7 +439,7 @@ svc_dg_reply(struct svc_req *req)
 
 		/* Set source IP address of the reply message in PKTINFO */
 		if (req->rq_daddr_len != 0) {
-			msg->msg_control = buffer;
+			msg->msg_control = su->su_cmsg;
 			cmsg = (struct cmsghdr *)msg->msg_control;
 			svc_dg_set_pktinfo(cmsg, req);
 			msg->msg_controllen = CMSG_ALIGN(cmsg->cmsg_len);
@@ -620,9 +613,6 @@ svc_dg_enable_pktinfo(int fd, const struct __rpc_sockinfo *si)
 
 	case AF_INET6:
 #ifdef SOL_IPV6
-		/* IP6_PKTINFO doesn't work on IPv4 mapped packets, so
-		 * enable IP_PKTINFO on IPv6 sockets as well
-		 */
 		(void)setsockopt(fd, SOL_IP, IP_PKTINFO, &val, sizeof(val));
 		(void)setsockopt(fd, SOL_IPV6, IPV6_RECVPKTINFO,
 				&val, sizeof(val));
@@ -632,57 +622,48 @@ svc_dg_enable_pktinfo(int fd, const struct __rpc_sockinfo *si)
 }
 
 static int
-svc_dg_store_in_pktinfo(struct msghdr *msg, struct svc_req *req)
+svc_dg_store_in_pktinfo(struct cmsghdr *cmsg, struct svc_req *req)
 {
-	struct cmsghdr *cmsg;
+	if (cmsg->cmsg_level == SOL_IP &&
+	    cmsg->cmsg_type == IP_PKTINFO &&
+	    cmsg->cmsg_len >= CMSG_LEN(sizeof(struct in_pktinfo))) {
+		struct in_pktinfo *pkti;
+		struct sockaddr_in *daddr;
 
-	for (cmsg = CMSG_FIRSTHDR(msg); cmsg != 0;
-			cmsg = CMSG_NXTHDR(msg, cmsg)) {
-		if (cmsg->cmsg_level == SOL_IP &&
-		    cmsg->cmsg_type == IP_PKTINFO &&
-		    cmsg->cmsg_len >= CMSG_LEN(sizeof(struct in_pktinfo))) {
-			struct in_pktinfo *pkti;
-			struct sockaddr_in *daddr;
-
-			pkti = (struct in_pktinfo *)CMSG_DATA(cmsg);
-			daddr = (struct sockaddr_in *)&req->rq_daddr;
-			daddr->sin_family = AF_INET;
+		pkti = (struct in_pktinfo *)CMSG_DATA(cmsg);
+		daddr = (struct sockaddr_in *)&req->rq_daddr;
+		daddr->sin_family = AF_INET;
 #ifdef __FreeBSD__
-			daddr->sin_addr = pkti->ipi_addr;
+		daddr->sin_addr = pkti->ipi_addr;
 #else
-			daddr->sin_addr.s_addr = pkti->ipi_spec_dst.s_addr;
+		daddr->sin_addr.s_addr = pkti->ipi_spec_dst.s_addr;
 #endif
-			req->rq_daddr_len = sizeof(struct sockaddr_in);
-			return 1;
-		}
+		req->rq_daddr_len = sizeof(struct sockaddr_in);
+		return 1;
+	} else {
+		return 0;
 	}
-
-	return 0;
 }
 
 static int
-svc_dg_store_in6_pktinfo(struct msghdr *msg, struct svc_req *req)
+svc_dg_store_in6_pktinfo(struct cmsghdr *cmsg, struct svc_req *req)
 {
-	struct cmsghdr *cmsg;
+	if (cmsg->cmsg_level == SOL_IPV6 &&
+	    cmsg->cmsg_type == IPV6_PKTINFO &&
+	    cmsg->cmsg_len >= CMSG_LEN(sizeof(struct in6_pktinfo))) {
+		struct in6_pktinfo *pkti;
+		struct sockaddr_in6 *daddr;
 
-	for (cmsg = CMSG_FIRSTHDR(msg); cmsg != 0;
-			cmsg = CMSG_NXTHDR(msg, cmsg)) {
-		if (cmsg->cmsg_level == SOL_IPV6 &&
-		    cmsg->cmsg_type == IPV6_PKTINFO &&
-		    cmsg->cmsg_len >= CMSG_LEN(sizeof(struct in6_pktinfo))) {
-			struct in6_pktinfo *pkti;
-			struct sockaddr_in6 *daddr;
-
-			pkti = (struct in6_pktinfo *)CMSG_DATA(cmsg);
-			daddr = (struct sockaddr_in6 *) &req->rq_daddr;
-			daddr->sin6_family = AF_INET6;
-			daddr->sin6_addr = pkti->ipi6_addr;
-			daddr->sin6_scope_id = pkti->ipi6_ifindex;
-			req->rq_daddr_len = sizeof(struct sockaddr_in6);
-			return 1;
-		}
+		pkti = (struct in6_pktinfo *)CMSG_DATA(cmsg);
+		daddr = (struct sockaddr_in6 *) &req->rq_daddr;
+		daddr->sin6_family = AF_INET6;
+		daddr->sin6_addr = pkti->ipi6_addr;
+		daddr->sin6_scope_id = pkti->ipi6_ifindex;
+		req->rq_daddr_len = sizeof(struct sockaddr_in6);
+		return 1;
+	} else {
+		return 0;
 	}
-	return 0;
 }
 
 /*
@@ -693,16 +674,22 @@ svc_dg_store_in6_pktinfo(struct msghdr *msg, struct svc_req *req)
 static int
 svc_dg_store_pktinfo(struct msghdr *msg, struct svc_req *req)
 {
+	struct cmsghdr *cmsg;
+
 	if (!msg->msg_name)
 		return 0;
 
 	if (msg->msg_flags & MSG_CTRUNC)
 		return 0;
 
+	cmsg = CMSG_FIRSTHDR(msg);
+	if (cmsg == NULL || CMSG_NXTHDR(msg, cmsg) != NULL)
+		return 0;
+
 	switch (((struct sockaddr *)msg->msg_name)->sa_family) {
 	case AF_INET:
 #ifdef SOL_IP
-		if (svc_dg_store_in_pktinfo(msg, req))
+		if (svc_dg_store_in_pktinfo(cmsg, req))
 				return 1;
 #endif
 		break;
@@ -710,10 +697,10 @@ svc_dg_store_pktinfo(struct msghdr *msg, struct svc_req *req)
 	case AF_INET6:
 #ifdef SOL_IPV6
 		/* Handle IPv4 PKTINFO as well on IPV6 interface */
-		if (svc_dg_store_in_pktinfo(msg, req))
+		if (svc_dg_store_in_pktinfo(cmsg, req))
 			return 1;
 
-		if (svc_dg_store_in6_pktinfo(msg, req))
+		if (svc_dg_store_in6_pktinfo(cmsg, req))
 			return 1;
 #endif
 		break;
