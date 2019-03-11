@@ -435,7 +435,7 @@ svc_dg_reply(struct svc_req *req)
 		struct msghdr *msg = &su->su_msghdr;
 		struct cmsghdr *cmsg;
 		struct iovec iov;
-		char buffer[SVC_CMSG_SIZE];
+		char buffer[SVC_CMSG_SIZE] = {0};
 
 		iov.iov_base = rpc_buffer(xprt);
 		iov.iov_len = slen = XDR_GETPOS(xdrs);
