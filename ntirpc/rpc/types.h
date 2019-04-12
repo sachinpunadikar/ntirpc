@@ -177,6 +177,12 @@ extern tirpc_pkg_params __ntirpc_pkg_params;
 		}							\
 	} while (0)
 
+
+#define __printx(flags, ...) \
+	do {					   \
+		__ntirpc_pkg_params.warnx_(__VA_ARGS__);	\
+	} while (0)
+
 #define __debug_flag(flags) (__ntirpc_pkg_params.debug_flags & (flags))
 
 #define mem_alloc(size) malloc(size)
