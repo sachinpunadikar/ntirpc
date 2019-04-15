@@ -163,12 +163,12 @@ svcauth_gss_acquire_cred(void)
 				svcauth_gss_creds_expires = 0;
 			else
 				svcauth_gss_creds_expires = now + timerec;
-			if (old_creds) {
-				svcauth_prev_gss_creds = old_creds;
-			}
-			if (ancient_creds) {
-				(void) gss_release_cred(&min_stat, &ancient_creds);
-			}
+		}
+		if (old_creds) {
+			svcauth_prev_gss_creds = old_creds;
+		}
+		if (ancient_creds) {
+			(void) gss_release_cred(&min_stat, &ancient_creds);
 		}
 	}
 	mutex_unlock(&svcauth_gss_creds_lock);
@@ -266,6 +266,8 @@ svcauth_gss_accept_sec_context(struct svc_req *req,
 				"%s: display_name major=%u minor=%u", __func__,
 				maj_stat, min_stat);
 			gss_release_buffer(&min_stat, &gr->gr_token);
+			gss_delete_sec_context(&min_stat, &gd->ctx,
+						GSS_C_NO_BUFFER);
 			return (false);
 		}
 #ifdef DEBUG
@@ -295,23 +297,29 @@ svcauth_gss_accept_sec_context(struct svc_req *req,
 		gss_release_buffer(&min_stat, &gd->checksum);
 
 		maj_stat =
-		    gss_sign(&min_stat, gd->ctx, GSS_C_QOP_DEFAULT, &seqbuf,
-			     &checksum);
+		    gss_get_mic(&min_stat, gd->ctx, GSS_C_QOP_DEFAULT, &seqbuf,
+				&checksum);
 
 		if (maj_stat != GSS_S_COMPLETE) {
 			gss_release_buffer(&min_stat, &gr->gr_token);
+			gss_delete_sec_context(&min_stat, &gd->ctx,
+						GSS_C_NO_BUFFER);
 			return (false);
 		}
 
 		/* XXX ref? (assert gd->locked?) */
 		if (checksum.length > MAX_AUTH_BYTES){
 			gss_release_buffer(&min_stat, &gr->gr_token);
+			gss_release_buffer(&min_stat, &checksum);
+			gss_delete_sec_context(&min_stat, &gd->ctx,
+						GSS_C_NO_BUFFER);
 			return (false);
 		}
 		req->rq_msg.RPCM_ack.ar_verf.oa_flavor = RPCSEC_GSS;
 		req->rq_msg.RPCM_ack.ar_verf.oa_length = checksum.length;
 		memcpy(req->rq_msg.RPCM_ack.ar_verf.oa_body, checksum.value,
 		       checksum.length);
+		gss_release_buffer(&min_stat, &checksum);
 	}
 	return (true);
 }
@@ -386,12 +394,15 @@ svcauth_gss_nextverf(struct svc_req *req, struct svc_rpc_gss_data *gd,
 	}
 	if (checksum.length > MAX_AUTH_BYTES) {
 		log_status("checksum.length", maj_stat, min_stat);
+		gss_release_buffer(&min_stat, &checksum);
 		return (false);
 	}
 	req->rq_msg.RPCM_ack.ar_verf.oa_flavor = RPCSEC_GSS;
 	req->rq_msg.RPCM_ack.ar_verf.oa_length = checksum.length;
 	memcpy(req->rq_msg.RPCM_ack.ar_verf.oa_body, checksum.value,
 	       checksum.length);
+
+	gss_release_buffer(&min_stat, &checksum);
 
 	return (true);
 }
@@ -532,6 +543,8 @@ _svcauth_gss(struct svc_req *req, bool *no_dispatch)
 		if (!svcauth_gss_nextverf(req, gd, htonl(gr.gr_win))) {
 			/* XXX check */
 			gss_release_buffer(&min_stat, &gr.gr_token);
+			gss_delete_sec_context(&min_stat, &gd->ctx,
+						GSS_C_NO_BUFFER);
 			mem_free(gr.gr_ctx.value, 0);
 			svcauth_gss_return(AUTH_FAILED);
 		}
@@ -548,8 +561,11 @@ _svcauth_gss(struct svc_req *req, bool *no_dispatch)
 		gss_release_buffer(&min_stat, &gd->checksum);
 		mem_free(gr.gr_ctx.value, 0);
 
-		if (!call_stat)
+		if (!call_stat) {
+			gss_delete_sec_context(&min_stat, &gd->ctx,
+						GSS_C_NO_BUFFER);
 			svcauth_gss_return(AUTH_FAILED);
+		}
 
 		if (gr.gr_major == GSS_S_COMPLETE) {
 			gd->established = true;
@@ -597,24 +613,31 @@ _svcauth_gss(struct svc_req *req, bool *no_dispatch)
 		call_stat = svcauth_gss_validate(req, gd);
 		switch (call_stat) {
 		default:
+			unref_svc_rpc_gss_data(gd, SVC_RPC_GSS_FLAG_NONE);
 			svcauth_gss_return(RPCSEC_GSS_CREDPROBLEM);
 		case 0:
 			break;
 		}
 
-		if (!svcauth_gss_nextverf(req, gd, htonl(gc->gc_seq)))
+		if (!svcauth_gss_nextverf(req, gd, htonl(gc->gc_seq))) {
+			unref_svc_rpc_gss_data(gd, SVC_RPC_GSS_FLAG_NONE);
 			svcauth_gss_return(AUTH_FAILED);
+		}
 		break;
 
 	case RPCSEC_GSS_DESTROY:
 		if (req->rq_msg.cb_proc != NULLPROC)
 			svcauth_gss_return(AUTH_FAILED);	/* XXX ? */
 
-		if (svcauth_gss_validate(req, gd))
+		if (svcauth_gss_validate(req, gd)) {
+			unref_svc_rpc_gss_data(gd, SVC_RPC_GSS_FLAG_NONE);
 			svcauth_gss_return(RPCSEC_GSS_CREDPROBLEM);
+		}
 
-		if (!svcauth_gss_nextverf(req, gd, htonl(gc->gc_seq)))
+		if (!svcauth_gss_nextverf(req, gd, htonl(gc->gc_seq))) {
+			unref_svc_rpc_gss_data(gd, SVC_RPC_GSS_FLAG_NONE);
 			svcauth_gss_return(AUTH_FAILED);
+		}
 
 		*no_dispatch = true;
 
